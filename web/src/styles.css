@@ -2045,6 +2045,8 @@ body:has(.icon-picker) .bn-side-menu {
 
 .collection-toolbar {
   display: flex;
+  flex-wrap: wrap;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -2058,6 +2060,7 @@ body:has(.icon-picker) .bn-side-menu {
 
 .view-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
 }
 
@@ -2081,6 +2084,7 @@ body:has(.icon-picker) .bn-side-menu {
 
 .collection-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -2120,11 +2124,9 @@ body:has(.icon-picker) .bn-side-menu {
   align-items: stretch;
   overflow-x: auto;
   flex: 1 1 auto;
-  /* At least almost the window height: on small monitors the page header
-       otherwise left the board nothing but a narrow strip, and the columns were
-       too short. If the board is taller than the space, .page-body scrolls the
-       header away — as in Trello, where the columns fill the window. */
-  min-height: max(320px, calc(100dvh - var(--topbar-h) - 108px));
+  /* Fill the remaining space, keeping the horizontal scrollbar in view.
+     A tall page header may still scroll rather than crush the columns. */
+  min-height: 320px;
   overscroll-behavior-x: contain;
 }
 /* A board embedded in a document (Notion style) stands in the MIDDLE of the
