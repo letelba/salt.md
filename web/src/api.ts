@@ -79,6 +79,10 @@ function guardSessionRequest(url: string) {
 }
 
 function throwApiError(url: string, err: ApiError): never {
+  if (err.status === 503 && err.code === 'auth_unavailable') {
+    sessionRequestsPaused = true;
+    window.dispatchEvent(new Event('salt:auth-unavailable'));
+  }
   if (err.status === 401 && !/^\/api\/(login|signup|setup)\b/.test(url)) {
     sessionRequestsPaused = true;
     window.dispatchEvent(new Event('salt:unauthorized'));
@@ -729,6 +733,10 @@ export const api = {
           code = body.code ?? '';
         } catch {
           /* not a JSON response (a proxy's error page, say) */
+        }
+        if (xhr.status === 503 && code === 'auth_unavailable') {
+          sessionRequestsPaused = true;
+          window.dispatchEvent(new Event('salt:auth-unavailable'));
         }
         reject(new ApiError(msg, xhr.status, code));
       };

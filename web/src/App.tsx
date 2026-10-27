@@ -96,6 +96,7 @@ type Theme = 'light' | 'dark';
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
+  const [authUnavailable, setAuthUnavailable] = useState(false);
   const [authRetryError, setAuthRetryError] = useState('');
   const [pages, setPages] = useState<PageMeta[] | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -374,6 +375,11 @@ export default function App() {
       // Keep editors and forms mounted. Unmounting on a failed autosave threw
       // away the very draft the person needed to sign back in to save.
       setAuthRequired(true);
+      setAuthUnavailable(false);
+    };
+    const onAuthUnavailable = () => {
+      setAuthRequired(true);
+      setAuthUnavailable(true);
     };
     // Back/forward: restore the exact tab set from the history entry's state
     // (set by pushTabHistory). Falls back to the URL id for entries with no
@@ -407,10 +413,12 @@ export default function App() {
       });
     };
     window.addEventListener('salt:unauthorized', onUnauthorized);
+    window.addEventListener('salt:auth-unavailable', onAuthUnavailable);
     window.addEventListener('popstate', onPop);
     window.addEventListener('salt:navigate', onLinkNav);
     return () => {
       window.removeEventListener('salt:unauthorized', onUnauthorized);
+      window.removeEventListener('salt:auth-unavailable', onAuthUnavailable);
       window.removeEventListener('popstate', onPop);
       window.removeEventListener('salt:navigate', onLinkNav);
     };
@@ -1112,6 +1120,7 @@ export default function App() {
     (user: User) => {
       resumeSessionRequests();
       setAuthRequired(false);
+      setAuthUnavailable(false);
       setAuthRetryError('');
       setMe({ setupRequired: false, authenticated: true, user, version: BUILD_VERSION });
       setSearchOpen(false);
@@ -1192,9 +1201,9 @@ export default function App() {
       {authRequired && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 100000, background: '#0009', display: 'grid', placeItems: 'center' }}>
           <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="session-recovery-title" style={{ padding: '2rem', maxWidth: '32rem', background: 'var(--bg)', borderRadius: '0.75rem' }}>
-            <h2 id="session-recovery-title">{t('Sign in again')}</h2>
-            <p>{t('Your open work is preserved. Sign in in the new tab, then retry here.')}</p>
-            <a className="btn" href={'/?next=' + encodeURIComponent(window.location.pathname)} target="_blank" rel="noopener noreferrer">{t('Sign in')}</a>
+            <h2 id="session-recovery-title">{authUnavailable ? t('Cannot reach the server') : t('Sign in again')}</h2>
+            <p>{authUnavailable ? t('Your open work is preserved. Retry when the connection is restored.') : t('Your open work is preserved. Sign in in the new tab, then retry here.')}</p>
+            {!authUnavailable && <a className="btn" href={'/?next=' + encodeURIComponent(window.location.pathname)} target="_blank" rel="noopener noreferrer">{t('Sign in')}</a>}
             <button className="btn primary" autoFocus onClick={async () => {
               try {
                 const current = await api.me();
@@ -1202,8 +1211,12 @@ export default function App() {
                   resumeSessionRequests();
                   setMe(current);
                   setAuthRequired(false);
+                  setAuthUnavailable(false);
                   setAuthRetryError('');
-                } else setAuthRetryError(t('Sign in to the same account to continue.'));
+                } else {
+                  setAuthUnavailable(false);
+                  setAuthRetryError(t('Sign in to the same account to continue.'));
+                }
               } catch { setAuthRetryError(t('Cannot reach the server')); }
             }}>{t('Retry')}</button>
             {authRetryError && <p role="status">{authRetryError}</p>}
