@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, ApiError } from './api';
+import { api, ApiError, resumeSessionRequests } from './api';
 import { serverMessage } from './serverErrors';
 import { WifiOff } from 'lucide-react';
 import type { Me, PageMeta, User, Workspace } from './types';
@@ -95,6 +95,8 @@ type Theme = 'light' | 'dark';
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authRetryError, setAuthRetryError] = useState('');
   const [pages, setPages] = useState<PageMeta[] | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -369,13 +371,9 @@ export default function App() {
 
   useEffect(() => {
     const onUnauthorized = () => {
-      setUiAccount(null);
-      setMe((prev) => ({
-        setupRequired: prev?.setupRequired ?? false,
-        authenticated: false,
-        user: null,
-        version: prev?.version ?? BUILD_VERSION,
-      }));
+      // Keep editors and forms mounted. Unmounting on a failed autosave threw
+      // away the very draft the person needed to sign back in to save.
+      setAuthRequired(true);
     };
     // Back/forward: restore the exact tab set from the history entry's state
     // (set by pushTabHistory). Falls back to the URL id for entries with no
@@ -1112,6 +1110,9 @@ export default function App() {
 
   const onAuthed = useCallback(
     (user: User) => {
+      resumeSessionRequests();
+      setAuthRequired(false);
+      setAuthRetryError('');
       setMe({ setupRequired: false, authenticated: true, user, version: BUILD_VERSION });
       setSearchOpen(false);
       void loadAll();
@@ -1188,6 +1189,27 @@ export default function App() {
 
   return (
     <div className={'app' + (sidebarCollapsed ? ' sidebar-collapsed' : '') + (hoverLock ? ' hover-lock' : '')}>
+      {authRequired && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 100000, background: '#0009', display: 'grid', placeItems: 'center' }}>
+          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="session-recovery-title" style={{ padding: '2rem', maxWidth: '32rem', background: 'var(--bg)', borderRadius: '0.75rem' }}>
+            <h2 id="session-recovery-title">{t('Sign in again')}</h2>
+            <p>{t('Your open work is preserved. Sign in in the new tab, then retry here.')}</p>
+            <a className="btn" href={'/?next=' + encodeURIComponent(window.location.pathname)} target="_blank" rel="noopener noreferrer">{t('Sign in')}</a>
+            <button className="btn primary" autoFocus onClick={async () => {
+              try {
+                const current = await api.me();
+                if (current.authenticated && current.user?.id === me.user?.id) {
+                  resumeSessionRequests();
+                  setMe(current);
+                  setAuthRequired(false);
+                  setAuthRetryError('');
+                } else setAuthRetryError(t('Sign in to the same account to continue.'));
+              } catch { setAuthRetryError(t('Cannot reach the server')); }
+            }}>{t('Retry')}</button>
+            {authRetryError && <p role="status">{authRetryError}</p>}
+          </div>
+        </div>
+      )}
       {/* Collapsed-sidebar hover zone (desktop): hovering the left edge slides
           the sidebar in as an overlay without permanently un-collapsing it. */}
       {sidebarCollapsed && <div className="sidebar-hotzone" />}

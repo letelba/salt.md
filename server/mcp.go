@@ -497,7 +497,11 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if tok := r.PathValue("token"); tok != "" && r.Header.Get("Authorization") == "" {
 		r.Header.Set("Authorization", "Bearer "+tok)
 	}
-	u := s.currentUser(r)
+	u, authErr := s.resolveUser(r)
+	if authErr != nil {
+		httpError(w, 503, "Sign-in is temporarily unavailable. Please retry.")
+		return
+	}
 	if u == nil && hasBearer(r) && !s.agentAddressAllowed(r) {
 		s.refuseAgentAddress(w, r)
 		return

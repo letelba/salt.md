@@ -81,7 +81,7 @@
       "takenAt": {
         "web/src/components/Sidebar.tsx": "7d75823681d0",
         "web/src/components/Editor.tsx": "68b120107f3b",
-        "web/src/App.tsx": "59ef64ecbd74",
+        "web/src/App.tsx": "c3b9ef793aa8",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -521,7 +521,7 @@
         }
       ],
       "takenAt": {
-        "server/users.go": "d0517969d1f4",
+        "server/users.go": "61b63f5afab9",
         "web/src/components/UserMenu.tsx": "5eca670f9eb3",
         "web/src/theme.css": "b1c3dece61ce"
       },
@@ -588,7 +588,7 @@
       ],
       "takenAt": {
         "web/src/components/AgentConnect.tsx": "e0a5a3a2e940",
-        "server/mcp.go": "7c6f6f3b9b1b",
+        "server/mcp.go": "700abf9add2c",
         "web/src/theme.css": "b1c3dece61ce"
       },
       "element": ".dialog"
@@ -619,7 +619,7 @@
         }
       ],
       "takenAt": {
-        "server/users.go": "d0517969d1f4",
+        "server/users.go": "61b63f5afab9",
         "web/src/theme.css": "b1c3dece61ce"
       },
       "element": ".dialog"

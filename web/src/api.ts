@@ -64,11 +64,23 @@ async function toApiError(res: Response, fallback: string): Promise<ApiError> {
   return new ApiError(serverMessage(code, msg, data), res.status, code);
 }
 
-/** An expired session sends the user back to the sign-in screen — except on the
- *  sign-in endpoints themselves, where a 401 means a failed attempt and the
- *  reason is needed (2FA required vs. wrong password). */
+/** Pause background requests while sign-in is required, keeping mounted drafts
+ *  intact until the user deliberately resumes with the same account. */
+let sessionRequestsPaused = false;
+export function sessionRequestsArePaused() { return sessionRequestsPaused; }
+export function resumeSessionRequests() {
+  sessionRequestsPaused = false;
+  window.dispatchEvent(new Event('salt:session-resumed'));
+}
+function guardSessionRequest(url: string) {
+  if (sessionRequestsPaused && !/^\/api\/(me|login|signup|setup|logout)(?:[?]|$)/.test(url)) {
+    throw new ApiError('unauthorized', 401, 'session_expired');
+  }
+}
+
 function throwApiError(url: string, err: ApiError): never {
   if (err.status === 401 && !/^\/api\/(login|signup|setup)\b/.test(url)) {
+    sessionRequestsPaused = true;
     window.dispatchEvent(new Event('salt:unauthorized'));
     throw new ApiError('unauthorized', 401, 'session_expired');
   }
@@ -87,6 +99,7 @@ export function materializeQuery(opts?: { materialize?: boolean; gen?: number | 
 }
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
+  guardSessionRequest(url);
   const res = await fetch(url, {
     ...init,
     headers: {
@@ -381,6 +394,7 @@ export const api = {
     // error handling as everywhere else: with a status, with a reason, and an
     // expired session lands on the sign-in screen rather than as text inside a
     // dialog.
+    guardSessionRequest('/api/import-zip');
     const res = await fetch('/api/import-zip', { method: 'POST', body: fd });
     if (!res.ok) throwApiError('/api/import-zip', await toApiError(res, t('Import failed')));
     return res.json() as Promise<{ created: number; skipped: number }>;
@@ -668,6 +682,7 @@ export const api = {
   // "salt:upload-progress" (0-1) and "salt:upload-done".
   upload: (file: File, pageId?: string): Promise<string> =>
     new Promise((resolve, reject) => {
+      guardSessionRequest('/api/upload');
       if (file.size > api.uploadMaxBytes) {
         reject(
           new ApiError(
@@ -702,6 +717,7 @@ export const api = {
         // sign-in screen instead of landing as text in the editor while the
         // interface goes on pretending you are signed in.
         if (xhr.status === 401) {
+          sessionRequestsPaused = true;
           window.dispatchEvent(new Event('salt:unauthorized'));
           return reject(new ApiError('unauthorized', 401, 'session_expired'));
         }

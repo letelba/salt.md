@@ -1128,5 +1128,8 @@
   "That is the newest release.": "Das ist die neueste Version.",
   "This copy was installed on the system, not by salt.md, so it is updated by whatever installed it.": "Diese Kopie wurde auf dem System installiert, nicht von salt.md, und wird dort aktualisiert, wo sie herkommt.",
   "Keep it up to date automatically (checked daily, checksum verified)": "Automatisch aktuell halten (täglich geprüft, mit Prüfsumme)",
-  "Check now": "Jetzt prüfen"
+  "Check now": "Jetzt prüfen",
+  "Sign in again": "Erneut anmelden",
+  "Your open work is preserved. Sign in in the new tab, then retry here.": "Deine offene Arbeit bleibt erhalten. Melde dich im neuen Tab an und versuche es dann hier erneut.",
+  "Sign in to the same account to continue.": "Melde dich mit demselben Konto an, um fortzufahren."
 }

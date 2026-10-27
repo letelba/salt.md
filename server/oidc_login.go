@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -18,9 +21,10 @@ import (
 
 // Optional generic OIDC login. Configuration and explicit identity-to-account
 // links are operator-owned; claims never create users or change native roles.
-// No provider tokens are retained. Sessions have a hard ten-minute ceiling so
-// disabling an identity or removing its grant cannot leave a long-lived login.
-const oidcSessionLifetime = 10 * time.Minute
+// Provider refresh credentials stay encrypted in SQLite. Authorization is
+// revalidated independently of the persistent browser session's fixed maximum.
+const oidcSessionLifetime = 30 * 24 * time.Hour
+const oidcAuthorizationLifetime = 10 * time.Minute
 const oidcTransactionLifetime = 5 * time.Minute
 const oidcTransactionCookie = "salt_oidc"
 
@@ -31,6 +35,9 @@ type oidcLogin struct {
 	mu                                          sync.Mutex
 	provider                                    *oidc.Provider
 	pending                                     map[string]oidcLoginTransaction
+	keys                                        []cipher.AEAD
+	team                                        string
+	clock                                       func() time.Time
 }
 
 type oidcLoginTransaction struct {
@@ -59,6 +66,7 @@ func oidcLoginFromEnv() (*oidcLogin, error) {
 		identityClaim: os.Getenv("SALT_OIDC_IDENTITY_CLAIM"),
 		entitlement:   os.Getenv("SALT_OIDC_REQUIRED_ENTITLEMENT"), role: os.Getenv("SALT_OIDC_REQUIRED_ROLE"),
 		pending: make(map[string]oidcLoginTransaction),
+		team:    os.Getenv("SALT_OIDC_REQUIRED_TEAM_ID"),
 	}
 	if !validOIDCURL(l.issuer) || !validOIDCURL(l.redirectURL) || l.clientID == "" || l.secret == "" {
 		return nil, fmt.Errorf("OIDC requires a valid issuer, redirect URL, client ID and client secret")
@@ -80,6 +88,18 @@ func oidcLoginFromEnv() (*oidcLogin, error) {
 	}
 	if l.identityClaim == "" {
 		l.identityClaim = "sub"
+	}
+	for _, encoded := range strings.Split(os.Getenv("SALT_OIDC_SESSION_KEYS"), ",") {
+		key, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(encoded))
+		if err != nil || len(key) != 32 {
+			return nil, fmt.Errorf("OIDC requires base64url-encoded 32-byte session encryption keys")
+		}
+		block, _ := aes.NewCipher(key)
+		aead, err := cipher.NewGCMWithRandomNonce(block)
+		if err != nil {
+			return nil, fmt.Errorf("OIDC session encryption is unavailable")
+		}
+		l.keys = append(l.keys, aead)
 	}
 	return l, nil
 }
@@ -110,7 +130,11 @@ func (l *oidcLogin) discover(ctx context.Context) (*oidc.Provider, error) {
 }
 
 func (l *oidcLogin) oauthConfig(p *oidc.Provider) oauth2.Config {
-	return oauth2.Config{ClientID: l.clientID, ClientSecret: l.secret, Endpoint: p.Endpoint(), RedirectURL: l.redirectURL, Scopes: []string{oidc.ScopeOpenID, "profile", "email"}}
+	endpoint := p.Endpoint()
+	// Do not probe a second authentication style after a failed exchange: a
+	// rotating refresh credential may already have been consumed.
+	endpoint.AuthStyle = oauth2.AuthStyleInHeader
+	return oauth2.Config{ClientID: l.clientID, ClientSecret: l.secret, Endpoint: endpoint, RedirectURL: l.redirectURL, Scopes: []string{oidc.ScopeOpenID, "profile", "email"}}
 }
 
 func (s *Server) oidcName() string {
@@ -234,24 +258,41 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		deny()
 		return
 	}
-	expires := time.Now().Add(oidcSessionLifetime)
-	if id.Expiry.Before(expires) {
-		expires = id.Expiry
-	}
-	if !tok.Expiry.IsZero() && tok.Expiry.Before(expires) {
-		expires = tok.Expiry
-	}
-	if !expires.After(time.Now()) {
+	started := l.now()
+	validated, err := l.validateCurrentTokens(r.Context(), p, tok, id.Subject, identity, tx.nonce)
+	if err != nil || tok.RefreshToken == "" {
 		deny()
 		return
 	}
+	expires := started.Add(oidcSessionLifetime)
+	if seconds, ok := tok.Extra("refresh_expires_in").(float64); ok && seconds > 0 {
+		if providerExpiry := started.Add(time.Duration(seconds) * time.Second); providerExpiry.Before(expires) {
+			expires = providerExpiry
+		}
+	}
 	session := randB64(32)
-	if _, err := s.db.Exec(`INSERT INTO sessions (token_hash, user_id, created_at, expires_at, auth_provider) VALUES (?, ?, ?, ?, 'oidc')`, tokenHash(session), uid, now(), expires.UTC().Format(time.RFC3339Nano)); err != nil {
+	hash := tokenHash(session)
+	ciphertext := l.encryptRefresh(hash, id.Subject, identity, tok.RefreshToken)
+	if len(ciphertext) == 0 {
+		deny()
+		return
+	}
+	dbtx, err := s.db.Begin()
+	if err != nil {
+		deny()
+		return
+	}
+	defer dbtx.Rollback()
+	_, err = dbtx.Exec(`INSERT INTO sessions (token_hash, user_id, created_at, expires_at, auth_provider) VALUES (?, ?, ?, ?, 'oidc')`, hash, uid, now(), expires.UTC().Format(time.RFC3339Nano))
+	if err == nil {
+		_, err = dbtx.Exec(`INSERT INTO oidc_sessions(session_hash,refresh_cipher,subject,identity,nonce,auth_until,verified_at) VALUES (?,?,?,?,?,?,?)`, hash, ciphertext, id.Subject, identity, tx.nonce, oidcMinimum(started.Add(oidcAuthorizationLifetime).UnixMilli(), validated.UnixMilli(), expires.UnixMilli()), started.UnixMilli())
+	}
+	if err != nil || dbtx.Commit() != nil {
 		deny()
 		return
 	}
 	s.audit("human", uid, u.Name, "oidc_login", "", "", "OIDC sign-in")
-	setSessionCookie(w, r, session, max(1, int(time.Until(expires).Seconds())))
+	setSessionCookie(w, r, session, max(1, int(expires.Sub(started).Seconds())))
 	dest := safeNext(tx.next)
 	if dest == "" {
 		dest = "/"

@@ -284,7 +284,11 @@ func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	// requestUser only reads what that middleware put in the context — so it
 	// was nil even for somebody signed in, and everybody got bounced to the
 	// login screen they did not need.
-	u := s.currentUser(r)
+	u, authErr := s.resolveUser(r)
+	if authErr != nil {
+		httpError(w, 503, "Sign-in is temporarily unavailable. Please retry.")
+		return
+	}
 	if u == nil || u.TokenScope != "" {
 		to := "/oauth/consent?" + forward.Encode()
 		http.Redirect(w, r, "/login?next="+url.QueryEscape(to), http.StatusFound)
