@@ -37,9 +37,11 @@ to enforce its native account-disabled flag and workspace permissions.
 
 ## Sessions, logout and recovery
 
-OIDC sessions have a fixed maximum of 30 days from successful login, capped by
-`refresh_expires_in` when the provider exposes its remaining session lifetime.
-Activity and renewal never change that original deadline. A persistent opaque
+OIDC sessions use the same **Sign-in session length (days)** instance setting as
+password sign-ins (90 days by default). Snapshot that maximum at successful
+login and cap it by `refresh_expires_in` when the provider exposes its remaining session lifetime.
+Activity, renewal and later instance-setting changes never change that original
+deadline. Only new sign-ins use the updated setting. A persistent opaque
 HttpOnly, Secure, SameSite=Lax cookie contains no provider credentials.
 
 SQLite stores the hashed handle, fixed expiry and authorization deadline, plus
@@ -60,7 +62,8 @@ recovery from temporary validation outages without retaining stale access.
 Provider/store outages return 503; invalid credentials or grants remove the
 session and return 401. No stale protected response is served.
 
-Configure the provider's SSO idle/max to 30 days, client overrides to inherit
+Configure the provider's SSO idle/max to support the approved instance lifetime,
+client overrides to inherit
 (0), access tokens to 600 seconds, and rotating refresh credentials with zero
 reuse. Do not request offline access. Existing SSO sessions retain their original
 remaining lifetime; joining this app does not start a new provider session.
@@ -88,8 +91,8 @@ with `auth_provider='oidc'` through private administration; older code does not
 validate renewal metadata. Never restore a database snapshot just to undo this
 adapter. Existing content, accounts and memberships are unchanged.
 
-Tests in `server/oidc_sessions_test.go` cover injected-clock freshness and fixed
-expiry boundaries, rotation, two workers sharing the database, a new server
+Tests in `server/oidc_sessions_test.go` cover injected-clock freshness and configured
+fixed expiry boundaries, rotation, two workers sharing the database, a new server
 instance reading persistent state, claim/revocation denial, outages, key rotation
 and logout races. These simulations do not establish elapsed multi-day browser
 acceptance; verify the deployed provider and browser independently.

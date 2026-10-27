@@ -124,7 +124,7 @@ func newRenewalFixture(t *testing.T) *renewalFixture {
 	t.Cleanup(f.issuer.Close)
 	l := &oidcLogin{issuer: f.issuer.URL, clientID: "notes", secret: "test-secret", identityClaim: "stable_id", entitlement: "notes", role: "notes.user", team: "T_APPROVED", accounts: map[string]string{"identity": uid}, keys: testOIDCKeys(t), pending: make(map[string]oidcLoginTransaction), clock: func() time.Time { return time.UnixMilli(f.now.Load()) }}
 	s.oidcLogin = l
-	expiry := l.now().Add(oidcSessionLifetime).Format(time.RFC3339Nano)
+	expiry := l.now().Add(s.oidcSessionLifetime()).Format(time.RFC3339Nano)
 	if _, err := s.db.Exec(`INSERT INTO sessions(token_hash,user_id,created_at,expires_at,auth_provider) VALUES(?,?,?,?,'oidc')`, tokenHash(f.handle), uid, now(), expiry); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestOIDCRenewalBoundariesAndFixedMaximum(t *testing.T) {
 	}
 	f.now.Store(deadline.UnixMilli())
 	if f.requests(f.s) != 401 {
-		t.Fatal("session survived its exact 30-day deadline")
+		t.Fatal("session survived its configured maximum deadline")
 	}
 	f.advances(time.Second)
 	if f.requests(f.s) != 401 {
