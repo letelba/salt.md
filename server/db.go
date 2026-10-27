@@ -497,6 +497,9 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "users", "email_verified", `email_verified INTEGER NOT NULL DEFAULT 1`); err != nil {
 		return nil, fmt.Errorf("migrate users.email_verified: %w", err)
 	}
+	if err := ensureColumn(db, "sessions", "auth_provider", `auth_provider TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate sessions.auth_provider: %w", err)
+	}
 	// W101: a workspace has an owner, not just members with roles — otherwise
 	// there is no answer to "who does it fall to when the last one leaves" and
 	// it can be left ownerless.

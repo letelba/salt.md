@@ -18,6 +18,7 @@ import (
 )
 
 type Server struct {
+	oidcLogin *oidcLogin
 	publicCSS string
 	db        *sql.DB
 	mux       *http.ServeMux
@@ -79,6 +80,11 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	login, err := oidcLoginFromEnv()
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
 
 	// The logo is read ONCE at startup out of the embedded build and kept as a
 	// data URI. A data URI rather than a link, because some MCP clients will
@@ -105,6 +111,7 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	}
 
 	s := &Server{
+		oidcLogin: login,
 		publicCSS: cssHref,
 		mcpIcon:   iconURI,
 		lucide:    lucideSet,
@@ -183,6 +190,8 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("DELETE /api/oauth/grants/{id}", s.auth(s.sessionOnly(s.handleDeleteGrant)))
 	m.HandleFunc("GET /api/oauth/{provider}/start", s.handleOAuthStart)
 	m.HandleFunc("GET /api/oauth/{provider}/callback", s.handleOAuthCallback)
+	m.HandleFunc("GET /api/oidc/start", s.handleOIDCStart)
+	m.HandleFunc("GET /api/oidc/callback", s.handleOIDCCallback)
 
 	// Instance administration (admin-gated inside the handlers).
 	m.HandleFunc("GET /api/settings", s.auth(s.handleGetSettings))

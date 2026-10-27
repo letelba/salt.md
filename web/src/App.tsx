@@ -1228,13 +1228,13 @@ export default function App() {
         themePref={themePref}
         onSetTheme={setThemePref}
         onLogout={async () => {
-          await api.logout();
+          const result = await api.logout();
           // Inside the marketing site's demo frame, '/' is the marketing home
           // page — loaded into the frame, with no way back to the application.
           // There the session IS the in-memory store, so a reload is the
           // sign-out: everything resets and the demo starts over.
           if (__SALT_DEMO__) window.location.reload();
-          else window.location.href = '/';
+          else window.location.href = result.logoutURL || '/';
         }}
         notesMode={notesMode}
         notesList={

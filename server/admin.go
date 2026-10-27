@@ -770,6 +770,7 @@ func (s *Server) handleSignupPolicy(w http.ResponseWriter, r *http.Request) {
 		"instanceName":   s.setting("instance_name", ""),
 		"oauthGoogle":    g,
 		"oauthMicrosoft": m,
+		"oidcName":       s.oidcName(),
 	})
 }
 

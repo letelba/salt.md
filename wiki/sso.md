@@ -7,9 +7,11 @@ the exact fields, the address to register with the provider, how an account is
 matched or created, how long a sign-in lasts, and every error the flow can
 produce.
 
-Two providers, and only two. There is no generic OpenID Connect field, no SAML,
-and no way to point salt.md at a different identity provider. Setting it up is
-an instance admin's job and takes two values per provider.
+Google and Microsoft are configured in instance settings with two values per
+provider. Operators can also configure a generic OpenID Connect provider through
+environment variables and explicit links to existing accounts; see
+[OpenID Connect login](../docs/oidc-login.md). The rest of this page describes
+the Google and Microsoft flows. SAML is not supported.
 
 ## What it does, and what it does not
 

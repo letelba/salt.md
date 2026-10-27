@@ -38,6 +38,7 @@ export default function Login({ onSuccess }: { onSuccess: (user: User) => void }
   const [busy, setBusy] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
   const [instanceName, setInstanceName] = useState('');
+  const [oidcName, setOidcName] = useState('');
   const [oauth, setOauth] = useState<{ google: boolean; microsoft: boolean }>({ google: false, microsoft: false });
 
   useEffect(() => {
@@ -46,6 +47,7 @@ export default function Login({ onSuccess }: { onSuccess: (user: User) => void }
       .then((p) => {
         setSignupOpen(p.mode === 'open' || p.mode === 'domain');
         setInstanceName(p.instanceName || '');
+        setOidcName(p.oidcName || '');
         if (p.instanceName) document.title = p.instanceName;
         setOauth({ google: p.oauthGoogle, microsoft: p.oauthMicrosoft });
       })
@@ -155,9 +157,14 @@ export default function Login({ onSuccess }: { onSuccess: (user: User) => void }
         <button className="btn primary" type="submit" disabled={busy}>
           {mode === 'signup' ? t('Create account') : t('Sign in')}
         </button>
-        {(oauth.google || oauth.microsoft) && (
+        {(oidcName || oauth.google || oauth.microsoft) && (
           <>
             <div className="login-divider"><span>{t('or')}</span></div>
+            {oidcName && (
+              <a className="btn oauth-btn" href={'/api/oidc/start' + oauthNextParam()}>
+                {oidcName}
+              </a>
+            )}
             {oauth.google && (
               <a className="btn oauth-btn" href={'/api/oauth/google/start' + oauthNextParam()}>
                 <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true">
