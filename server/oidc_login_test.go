@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -75,6 +76,8 @@ func TestOIDCLoginSecurity(t *testing.T) {
 	}
 	var issuer, nonce, challenge string
 	var userClaims map[string]any
+	var refreshLifetime int
+	var userInfoDelay time.Duration
 	var alter func(map[string]any)
 	var exchanges int
 	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +86,7 @@ func TestOIDCLoginSecurity(t *testing.T) {
 		case "/.well-known/openid-configuration":
 			json.NewEncoder(w).Encode(map[string]any{"issuer": issuer, "authorization_endpoint": issuer + "/auth", "token_endpoint": issuer + "/token", "userinfo_endpoint": issuer + "/userinfo", "jwks_uri": issuer + "/keys", "id_token_signing_alg_values_supported": []string{"RS256"}, "end_session_endpoint": issuer + "/logout"})
 		case "/userinfo":
+			time.Sleep(userInfoDelay)
 			json.NewEncoder(w).Encode(userClaims)
 		case "/keys":
 			json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &key.PublicKey, Algorithm: "RS256", Use: "sig"}}})
@@ -108,7 +112,7 @@ func TestOIDCLoginSecurity(t *testing.T) {
 				parts[2] = b64url(make([]byte, 256))
 				token = strings.Join(parts, ".")
 			}
-			json.NewEncoder(w).Encode(map[string]any{"id_token": token, "access_token": token, "refresh_token": "test-refresh-token", "token_type": "Bearer", "expires_in": 600})
+			json.NewEncoder(w).Encode(map[string]any{"id_token": token, "access_token": token, "refresh_token": "test-refresh-token", "token_type": "Bearer", "expires_in": 600, "refresh_expires_in": refreshLifetime})
 		default:
 			http.NotFound(w, r)
 		}
@@ -176,7 +180,8 @@ func TestOIDCLoginSecurity(t *testing.T) {
 				session = c
 			}
 		}
-		if session == nil || session.MaxAge > 2592000 || session.MaxAge < 2591990 {
+		maximum := int(s.oidcSessionLifetime().Seconds())
+		if session == nil || session.MaxAge > maximum || session.MaxAge < maximum-10 {
 			t.Fatal("missing or unbounded session")
 		}
 		r := httptest.NewRequest("GET", "/api/me", nil)
@@ -188,7 +193,7 @@ func TestOIDCLoginSecurity(t *testing.T) {
 		var expiry string
 		s.db.QueryRow(`SELECT expires_at FROM sessions WHERE token_hash = ?`, tokenHash(session.Value)).Scan(&expiry)
 		expires, _ := time.Parse(time.RFC3339Nano, expiry)
-		if time.Until(expires) > oidcSessionLifetime {
+		if time.Until(expires) > s.oidcSessionLifetime() {
 			t.Fatal("database session lifetime exceeds revocation ceiling")
 		}
 		lw := httptest.NewRecorder()
@@ -266,6 +271,62 @@ func TestOIDCLoginSecurity(t *testing.T) {
 		if callback(cookie, q.Get("state"), "valid").Header().Get("Location") != "/" {
 			t.Fatal("unsafe redirect accepted")
 		}
+	})
+	t.Run("instance_session_setting_controls_new_logins", func(t *testing.T) {
+		defer s.setSetting("session_days", "90")
+		for _, days := range []int{1, 7, 90} {
+			s.setSetting("session_days", strconv.Itoa(days))
+			cookie, q := start(t, "/")
+			w := callback(cookie, q.Get("state"), "valid")
+			var session *http.Cookie
+			for _, c := range w.Result().Cookies() {
+				if c.Name == sessionCookie {
+					session = c
+				}
+			}
+			maximum := days * 24 * 3600
+			if session == nil || session.MaxAge > maximum || session.MaxAge < maximum-5 {
+				t.Fatalf("session did not follow %d-day instance setting", days)
+			}
+			var original string
+			s.db.QueryRow(`SELECT expires_at FROM sessions WHERE token_hash=?`, tokenHash(session.Value)).Scan(&original)
+			deadline, err := time.Parse(time.RFC3339Nano, original)
+			if err != nil || time.Until(deadline) > time.Duration(maximum)*time.Second || time.Until(deadline) < time.Duration(maximum-5)*time.Second {
+				t.Fatalf("database expiry did not follow %d-day setting", days)
+			}
+			s.setSetting("session_days", "365")
+			r := httptest.NewRequest("GET", "/api/me", nil)
+			r.AddCookie(session)
+			if s.currentUser(r) == nil {
+				t.Fatal("setting change broke existing login")
+			}
+			var after string
+			s.db.QueryRow(`SELECT expires_at FROM sessions WHERE token_hash=?`, tokenHash(session.Value)).Scan(&after)
+			if after != original {
+				t.Fatal("setting change extended an issued session")
+			}
+		}
+	})
+	t.Run("provider_remaining_lifetime_and_cookie_deadline", func(t *testing.T) {
+		refreshLifetime = 120
+		userInfoDelay = 2100 * time.Millisecond
+		defer func() { refreshLifetime = 0; userInfoDelay = 0 }()
+		cookie, q := start(t, "/")
+		w := callback(cookie, q.Get("state"), "valid")
+		for _, c := range w.Result().Cookies() {
+			if c.Name != sessionCookie {
+				continue
+			}
+			var value string
+			s.db.QueryRow(`SELECT expires_at FROM sessions WHERE token_hash=?`, tokenHash(c.Value)).Scan(&value)
+			deadline, err := time.Parse(time.RFC3339Nano, value)
+			remaining := time.Until(deadline).Seconds()
+			if err != nil || remaining > 120 || float64(c.MaxAge) > remaining+0.1 || c.MaxAge < 116 {
+				t.Fatalf("cookie/provider lifetime mismatch: cookie %d, server remaining %.2f", c.MaxAge, remaining)
+			}
+			return
+		}
+		t.Fatal("provider-bounded login minted no session")
 	})
 }
 

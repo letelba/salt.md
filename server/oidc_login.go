@@ -23,7 +23,6 @@ import (
 // links are operator-owned; claims never create users or change native roles.
 // Provider refresh credentials stay encrypted in SQLite. Authorization is
 // revalidated independently of the persistent browser session's fixed maximum.
-const oidcSessionLifetime = 30 * 24 * time.Hour
 const oidcAuthorizationLifetime = 10 * time.Minute
 const oidcTransactionLifetime = 5 * time.Minute
 const oidcTransactionCookie = "salt_oidc"
@@ -43,6 +42,12 @@ type oidcLogin struct {
 type oidcLoginTransaction struct {
 	state, nonce, verifier, next string
 	expires                      time.Time
+}
+
+// Snapshot the same instance setting native sign-ins use. Issued sessions keep
+// their original expiry; changing the setting only affects later sign-ins.
+func (s *Server) oidcSessionLifetime() time.Duration {
+	return time.Duration(s.sessionDays()) * 24 * time.Hour
 }
 
 // HTTPS is required outside loopback development. Endpoints and callbacks come
@@ -264,7 +269,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		deny()
 		return
 	}
-	expires := started.Add(oidcSessionLifetime)
+	expires := started.Add(s.oidcSessionLifetime())
 	if seconds, ok := tok.Extra("refresh_expires_in").(float64); ok && seconds > 0 {
 		if providerExpiry := started.Add(time.Duration(seconds) * time.Second); providerExpiry.Before(expires) {
 			expires = providerExpiry
@@ -292,7 +297,13 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit("human", uid, u.Name, "oidc_login", "", "", "OIDC sign-in")
-	setSessionCookie(w, r, session, max(1, int(expires.Sub(started).Seconds())))
+	remaining := int(expires.Sub(l.now()).Seconds())
+	if remaining < 1 {
+		s.invalidateOIDCSession(r.Context(), session)
+		deny()
+		return
+	}
+	setSessionCookie(w, r, session, remaining)
 	dest := safeNext(tx.next)
 	if dest == "" {
 		dest = "/"
