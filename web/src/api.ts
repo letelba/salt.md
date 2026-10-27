@@ -73,7 +73,9 @@ export function resumeSessionRequests() {
   window.dispatchEvent(new Event('salt:session-resumed'));
 }
 function guardSessionRequest(url: string) {
-  if (sessionRequestsPaused && !/^\/api\/(me|login|signup|setup|logout)(?:[?]|$)/.test(url)) {
+  // Login needs this public policy to display the configured identity provider
+  // even after a protected request has paused the signed-in application's work.
+  if (sessionRequestsPaused && !/^\/api\/(me|login|signup|signup-policy|setup|logout)(?:[?]|$)/.test(url)) {
     throw new ApiError('unauthorized', 401, 'session_expired');
   }
 }
