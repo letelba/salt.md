@@ -51,6 +51,8 @@ type user struct {
 	// unrestricted (all the user's workspaces); non-nil is the allow-list.
 	// Cookie/session auth is always nil (unrestricted). Not serialized.
 	TokenWorkspaces []string `json:"-"`
+	// OIDC browser streams must end at the same hard deadline as HTTP access.
+	SessionExpires time.Time `json:"-"`
 }
 
 type ctxKey int
@@ -217,8 +219,8 @@ func (s *Server) currentUser(r *http.Request) *user {
 	if !ok {
 		return nil
 	}
-	var userID, expires string
-	err := s.db.QueryRow(`SELECT user_id, expires_at FROM sessions WHERE token_hash = ?`, tokenHash(val)).Scan(&userID, &expires)
+	var userID, expires, provider string
+	err := s.db.QueryRow(`SELECT user_id, expires_at, auth_provider FROM sessions WHERE token_hash = ?`, tokenHash(val)).Scan(&userID, &expires, &provider)
 	if err != nil {
 		return nil
 	}
@@ -226,7 +228,16 @@ func (s *Server) currentUser(r *http.Request) *user {
 		s.db.Exec(`DELETE FROM sessions WHERE token_hash = ?`, tokenHash(val))
 		return nil
 	}
-	return s.userByID(userID)
+	u := s.userByID(userID)
+	if provider == "oidc" {
+		if s.oidcLogin == nil {
+			return nil
+		}
+		if u != nil {
+			u.SessionExpires, _ = time.Parse(time.RFC3339Nano, expires)
+		}
+	}
+	return u
 }
 
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
@@ -256,7 +267,13 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 		}
-		next(w, r.WithContext(context.WithValue(r.Context(), userCtxKey, u)))
+		ctx := context.WithValue(r.Context(), userCtxKey, u)
+		if !u.SessionExpires.IsZero() {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(ctx, u.SessionExpires)
+			defer cancel()
+		}
+		next(w, r.WithContext(ctx))
 	}
 }
 
@@ -507,11 +524,20 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	logoutURL := ""
 	if val, ok := sessionCookieValue(r); ok {
+		var provider, uid string
+		s.db.QueryRow(`SELECT auth_provider, user_id FROM sessions WHERE token_hash = ?`, tokenHash(val)).Scan(&provider, &uid)
 		s.db.Exec(`DELETE FROM sessions WHERE token_hash = ?`, tokenHash(val))
+		if provider == "oidc" {
+			if u := s.userByID(uid); u != nil {
+				s.audit("human", uid, u.Name, "oidc_logout", "", "", "OIDC sign-out")
+			}
+			logoutURL = s.oidcLogoutURL(r)
+		}
 	}
 	setSessionCookie(w, r, "", -1)
-	writeJSON(w, map[string]bool{"ok": true})
+	writeJSON(w, map[string]any{"ok": true, "logoutURL": logoutURL})
 }
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {

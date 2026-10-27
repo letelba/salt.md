@@ -114,12 +114,12 @@ export const api = {
     req<User>('/api/setup', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
   login: (email: string, password: string, code?: string) =>
     req<User>('/api/login', { method: 'POST', body: JSON.stringify({ email, password, code }) }),
-  logout: () => req<{ ok: boolean }>('/api/logout', { method: 'POST' }),
+  logout: () => req<{ ok: boolean; logoutURL?: string }>('/api/logout', { method: 'POST' }),
   signup: (name: string, email: string, password: string) =>
     req<User>('/api/signup', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
   // No allowedDomains here: which sender domains an instance counts as its own
   // is nobody's business before they have signed in.
-  signupPolicy: () => req<{ mode: string; instanceName: string; oauthGoogle: boolean; oauthMicrosoft: boolean }>('/api/signup-policy'),
+  signupPolicy: () => req<{ mode: string; instanceName: string; oauthGoogle: boolean; oauthMicrosoft: boolean; oidcName?: string }>('/api/signup-policy'),
 
   getSettings: () =>
     req<{
