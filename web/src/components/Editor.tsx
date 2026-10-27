@@ -8,7 +8,7 @@ import {
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core';
 import { de as coreDe, en as coreEn, es as coreEs, zh as coreZh, zhTW as coreZhTW } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
-import { api, ApiError, materializeQuery } from '../api';
+import { api, ApiError, materializeQuery, sessionRequestsArePaused } from '../api';
 import { toast } from '../toast';
 import type { Backlink, CollectionConfig, Comment, CommentAnchor, Page, PageMeta, PropOption, User } from '../types';
 import { SaltProvider } from '../collab';
@@ -2023,6 +2023,8 @@ function BlockContent({
       // the 4001 never reached this tab (server/docgen.go).
       const opts = { materialize: true, gen: provider.gen, replaced: provider.replacedDoc };
       if (keepalive) {
+        // An unmount must not replay a failed save during sign-in/recovery.
+        if (sessionRequestsArePaused()) { dirty.current = true; return; }
         // Unmount (e.g. following a link chip): a normal fetch would be
         // cancelled, so use keepalive to guarantee the write — otherwise the
         // just-inserted @-mention's backlink would never be recorded.

@@ -68,6 +68,7 @@ export class SaltProvider {
     this.doc = new Y.Doc();
     this.awareness = new Awareness(this.doc);
     window.addEventListener('salt:unauthorized', this.pauseForSignIn);
+    window.addEventListener('salt:auth-unavailable', this.pauseForSignIn);
     window.addEventListener('salt:session-resumed', this.resumeAfterSignIn);
 
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
@@ -242,6 +243,7 @@ export class SaltProvider {
     if (this.closed) return; // StrictMode double-mount / repeated cleanup
     this.closed = true;
     window.removeEventListener('salt:unauthorized', this.pauseForSignIn);
+    window.removeEventListener('salt:auth-unavailable', this.pauseForSignIn);
     window.removeEventListener('salt:session-resumed', this.resumeAfterSignIn);
     clearInterval(this.watchdog);
     removeAwarenessStates(this.awareness, [this.doc.clientID], 'destroy');
