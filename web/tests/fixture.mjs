@@ -3,10 +3,11 @@ import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
+import { createServer as createHTTPServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { chromium } from 'playwright';
 
 export async function eventually(check) {
@@ -19,11 +20,12 @@ export async function eventually(check) {
 
 // Always build and start our own loopback server with disposable data. There is
 // intentionally no URL or data-directory override pointing at an existing site.
-export async function withFixture(test) {
+export async function withFixture(test, { oidc = false } = {}) {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
   const temp = await mkdtemp(join(tmpdir(), 'salt-browser-test-'));
   let server;
   let browser;
+  let provider;
   try {
     const binary = join(temp, process.platform === 'win32' ? 'salt.exe' : 'salt');
     const build = spawnSync(process.env.GO_BINARY || 'go', ['build', '-o', binary, '.'], {
@@ -35,12 +37,40 @@ export async function withFixture(test) {
     await once(listener, 'listening');
     const port = listener.address().port;
     await new Promise(resolve => listener.close(resolve));
+    const base = `http://127.0.0.1:${port}`;
+    let providerBase;
+    const oidcEnv = {};
+    if (oidc) {
+      // A loopback-only discovery/authorization fixture. It cannot issue tokens
+      // or authenticate a real identity; these tests cover the browser entry.
+      provider = createHTTPServer((request, response) => {
+        const path = new URL(request.url, providerBase).pathname;
+        if (path === '/.well-known/openid-configuration') {
+          response.setHeader('Content-Type', 'application/json');
+          response.end(JSON.stringify({ issuer: providerBase, authorization_endpoint: providerBase + '/authorize',
+            token_endpoint: providerBase + '/token', jwks_uri: providerBase + '/jwks' }));
+        } else if (path === '/authorize') {
+          response.setHeader('Content-Type', 'text/html');
+          response.end('<!doctype html><title>Local test provider</title><h1>Local test provider</h1>');
+        } else {
+          response.writeHead(404).end();
+        }
+      });
+      provider.listen(0, '127.0.0.1');
+      await once(provider, 'listening');
+      providerBase = `http://127.0.0.1:${provider.address().port}`;
+      Object.assign(oidcEnv, {
+        SALT_OIDC_ISSUER: providerBase, SALT_OIDC_CLIENT_ID: 'browser-fixture',
+        SALT_OIDC_CLIENT_SECRET: randomUUID(), SALT_OIDC_REDIRECT_URL: base + '/api/oidc/callback',
+        SALT_OIDC_NAME: 'Example Login', SALT_OIDC_ACCOUNT_LINKS: JSON.stringify({ invented: 'invented-local-account' }),
+        SALT_OIDC_SESSION_KEYS: randomBytes(32).toString('base64url'),
+      });
+    }
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SALT_')));
     server = spawn(binary, [], {
-      env: { ...env, SALT_DATA: join(temp, 'data'), SALT_ADDR: `127.0.0.1:${port}` },
+      env: { ...env, ...oidcEnv, SALT_DATA: join(temp, 'data'), SALT_ADDR: `127.0.0.1:${port}` },
       stdio: 'ignore',
     });
-    const base = `http://127.0.0.1:${port}`;
     await eventually(async () => {
       if (server.exitCode !== null) throw new Error('Test server exited before becoming ready');
       try { return (await fetch(`${base}/api/health`)).ok; } catch { return false; }
@@ -95,7 +125,7 @@ export async function withFixture(test) {
     };
     // One fixture for every test here: the collection ones use its helpers,
     // the callout one only needs the API and a workspace to write into.
-    await test({ page, context, api, base, workspace, path, open, chip, field, read, assertRows, schema });
+    await test({ page, context, api, base, providerBase, workspace, path, open, chip, field, read, assertRows, schema });
   } finally {
     await browser?.close();
     if (server && server.exitCode === null) {
@@ -105,6 +135,7 @@ export async function withFixture(test) {
       await exited;
       clearTimeout(timer);
     }
+    if (provider) await new Promise(resolve => provider.close(resolve));
     await rm(temp, { recursive: true, force: true });
   }
 }

@@ -78,6 +78,10 @@ The public `/api/signup-policy` request remains available while protected
 requests are paused, so the sign-in screen can still show the configured OIDC
 button and instance name. `web/scripts/check-session-auth.mjs` exercises this
 recovery path and confirms protected reads and writes remain paused.
+The isolated browser entry tests in `web/tests/login.mjs` verify the rendered
+provider link, real start-endpoint navigation to a loopback provider, safe return
+paths, policy-failure recovery and native fallback. Run them as described in
+`web/tests/README.md`; they do not replace actual provider/callback acceptance.
 
 Signing out deletes local session state and revokes its refresh credential before
 taking the browser to the provider's end-session endpoint. Provider logout may

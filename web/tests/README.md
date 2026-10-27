@@ -21,6 +21,20 @@ of downloading Chromium, skip the browser installation and set
 The browser dependency is isolated in this test package; the application has no
 additional runtime dependencies. Tests do not upload fixtures or screenshots.
 
+Run just the sign-in coverage with `npm run test:login --prefix web/tests` after
+the build and browser setup above. It checks a fresh signed-out screen, the
+configured provider button and instance name, navigation through the real OIDC
+start endpoint to a synthetic loopback provider, PKCE parameters, safe relative
+return links, rejection of external return links, recovery after a temporary
+policy failure, and native password sign-in when OIDC is disabled. The synthetic
+provider cannot issue tokens; callback validation and actual Slack/MFA acceptance
+remain separate checks.
+
+`npm run check --prefix web` also runs `scripts/check-session-auth.mjs`, which
+loads the real API client and verifies public policy/recovery requests after 401
+and provider 503 failures, blocked protected reads/writes/uploads, deliberate
+retry without mutation replay, and ordinary errors that must not pause recovery.
+
 Callout coverage: all seven preset icons, immediate background changes when
 cycling icons, existing saved blocks, light/dark appearance, dark-mode text
 contrast, and persistence after reload without changing the callout text.
