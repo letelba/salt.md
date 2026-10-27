@@ -74,6 +74,11 @@ pauses background requests and offers sign-in in another tab followed by an
 explicit same-account retry. Failed HTTP mutations are never automatically
 replayed. Temporary 503 failures retain drafts for deliberate retry.
 
+The public `/api/signup-policy` request remains available while protected
+requests are paused, so the sign-in screen can still show the configured OIDC
+button and instance name. `web/scripts/check-session-auth.mjs` exercises this
+recovery path and confirms protected reads and writes remain paused.
+
 Signing out deletes local session state and revokes its refresh credential before
 taking the browser to the provider's end-session endpoint. Provider logout may
 require confirmation. A concurrent renewal cannot recreate a logged-out session.
