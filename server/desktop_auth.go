@@ -3,8 +3,8 @@ package server
 import (
 	"crypto/sha256"
 	"encoding/base64"
-	"html"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
 	"strings"
@@ -69,7 +69,11 @@ func (s *Server) handleDesktopLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.sweepDesktopPending()
 
-	u := s.currentUser(r)
+	u, authErr := s.resolveUser(r)
+	if authErr != nil {
+		httpError(w, 503, "Sign-in is temporarily unavailable. Please retry.")
+		return
+	}
 	if u == nil || u.TokenKind != "" {
 		// Not signed in yet — through the normal front door, and back here
 		// afterwards. currentUser is used rather than the auth middleware
@@ -91,7 +95,11 @@ func (s *Server) handleDesktopApprove(w http.ResponseWriter, r *http.Request) {
 		desktopPage(w, http.StatusBadRequest, "That sign-in request is malformed.", "", "")
 		return
 	}
-	u := s.currentUser(r)
+	u, authErr := s.resolveUser(r)
+	if authErr != nil {
+		httpError(w, 503, "Sign-in is temporarily unavailable. Please retry.")
+		return
+	}
 	if u == nil || u.TokenKind != "" {
 		desktopPage(w, http.StatusUnauthorized, "You are not signed in any more.",
 			"Start again from the app.", "")

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -52,7 +53,8 @@ type user struct {
 	// Cookie/session auth is always nil (unrestricted). Not serialized.
 	TokenWorkspaces []string `json:"-"`
 	// OIDC browser streams must end at the same hard deadline as HTTP access.
-	SessionExpires time.Time `json:"-"`
+	SessionExpires  time.Time `json:"-"`
+	SessionProvider string    `json:"-"`
 }
 
 type ctxKey int
@@ -160,9 +162,9 @@ func (s *Server) userByID(id string) *user {
 	return &u
 }
 
-// currentUser resolves the request's user from the session cookie or an
-// API bearer token. Returns nil when unauthenticated.
-func (s *Server) currentUser(r *http.Request) *user {
+// localUser resolves native password sessions and API bearer tokens. OIDC
+// browser sessions go through resolveUser and its current authorization check.
+func (s *Server) localUser(r *http.Request) *user {
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
 		// Before the key is even looked up, so an address that is turned away
 		// learns nothing about whether its key is good.
@@ -235,6 +237,7 @@ func (s *Server) currentUser(r *http.Request) *user {
 		}
 		if u != nil {
 			u.SessionExpires, _ = time.Parse(time.RFC3339Nano, expires)
+			u.SessionProvider = "oidc"
 		}
 	}
 	return u
@@ -242,7 +245,11 @@ func (s *Server) currentUser(r *http.Request) *user {
 
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		u := s.currentUser(r)
+		u, err := s.resolveUser(r)
+		if err != nil {
+			httpErrorCode(w, 503, "auth_unavailable", "Sign-in is temporarily unavailable. Please retry.")
+			return
+		}
 		if u == nil {
 			if hasBearer(r) && !s.agentAddressAllowed(r) {
 				s.refuseAgentAddress(w, r)
@@ -325,7 +332,11 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, err.Error())
 		return
 	}
-	u := s.currentUser(r)
+	u, authErr := s.resolveUser(r)
+	if authErr != nil {
+		httpErrorCode(w, 503, "auth_unavailable", "Sign-in is temporarily unavailable. Please retry.")
+		return
+	}
 	// Preferences travel here and NOT on the user object: that object also goes
 	// out in member lists and over MCP, and somebody else's timezone is not the
 	// workspace's business. The zero value is automatic, so an unauthenticated
@@ -527,8 +538,22 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	logoutURL := ""
 	if val, ok := sessionCookieValue(r); ok {
 		var provider, uid string
-		s.db.QueryRow(`SELECT auth_provider, user_id FROM sessions WHERE token_hash = ?`, tokenHash(val)).Scan(&provider, &uid)
-		s.db.Exec(`DELETE FROM sessions WHERE token_hash = ?`, tokenHash(val))
+		err := s.db.QueryRow(`SELECT auth_provider, user_id FROM sessions WHERE token_hash = ?`, tokenHash(val)).Scan(&provider, &uid)
+		if err != nil && err != sql.ErrNoRows {
+			httpError(w, 503, "Sign-out is temporarily unavailable. Please retry.")
+			return
+		}
+		if provider == "oidc" {
+			if err := s.invalidateOIDCSession(r.Context(), val); err != nil {
+				httpError(w, 503, "Sign-out is temporarily unavailable. Please retry.")
+				return
+			}
+		} else {
+			if _, err := s.db.Exec(`DELETE FROM sessions WHERE token_hash = ?`, tokenHash(val)); err != nil {
+				httpError(w, 503, "Sign-out is temporarily unavailable. Please retry.")
+				return
+			}
+		}
 		if provider == "oidc" {
 			if u := s.userByID(uid); u != nil {
 				s.audit("human", uid, u.Name, "oidc_logout", "", "", "OIDC sign-out")

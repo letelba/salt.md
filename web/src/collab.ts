@@ -1,4 +1,5 @@
 import * as Y from 'yjs';
+import { sessionRequestsArePaused } from './api';
 import {
   Awareness,
   applyAwarenessUpdate,
@@ -47,6 +48,12 @@ export class SaltProvider {
   private lastMsg = 0;
   private connectStarted = 0;
   private watchdog: ReturnType<typeof setInterval>;
+  private pauseForSignIn = () => {
+    if (this.ws) this.dropConnection(this.ws);
+  };
+  private resumeAfterSignIn = () => {
+    if (!this.closed && !this.replacedDoc) this.connect();
+  };
 
   constructor(
     pageId: string,
@@ -60,6 +67,8 @@ export class SaltProvider {
     this.onReset = onReset;
     this.doc = new Y.Doc();
     this.awareness = new Awareness(this.doc);
+    window.addEventListener('salt:unauthorized', this.pauseForSignIn);
+    window.addEventListener('salt:session-resumed', this.resumeAfterSignIn);
 
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
       if (origin === 'remote') return;
@@ -109,6 +118,8 @@ export class SaltProvider {
   }
 
   private connect() {
+    if (this.closed || sessionRequestsArePaused()) return;
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const gen = this.gen === null ? '' : `?gen=${this.gen}`;
     const ws = new WebSocket(`${proto}://${location.host}/collab/${this.pageId}${gen}`);
@@ -183,6 +194,7 @@ export class SaltProvider {
 
   // Shared exit for onclose and for the watchdog kill (which has no event).
   private handleClosed(e: CloseEvent | null) {
+    this.ws = null;
     this.synced = false;
     // Peers from the dead connection are unknowable now; drop them locally
     // instead of showing stale avatars. The server replays live presence
@@ -192,7 +204,7 @@ export class SaltProvider {
       [...this.awareness.getStates().keys()].filter((id) => id !== this.doc.clientID),
       'disconnect',
     );
-    if (this.closed) return;
+    if (this.closed || sessionRequestsArePaused()) return;
     if (e?.code === 4001) {
       // Server-side doc was reset (API write): local state is stale.
       this.replaced();
@@ -209,7 +221,7 @@ export class SaltProvider {
   }
 
   private send(type: number, payload: Uint8Array) {
-    if (this.replacedDoc) return;
+    if (this.replacedDoc || sessionRequestsArePaused()) return;
     if (this.ws?.readyState !== WebSocket.OPEN) return;
     const buf = new Uint8Array(1 + payload.length);
     buf[0] = type;
@@ -229,6 +241,8 @@ export class SaltProvider {
   destroy() {
     if (this.closed) return; // StrictMode double-mount / repeated cleanup
     this.closed = true;
+    window.removeEventListener('salt:unauthorized', this.pauseForSignIn);
+    window.removeEventListener('salt:session-resumed', this.resumeAfterSignIn);
     clearInterval(this.watchdog);
     removeAwarenessStates(this.awareness, [this.doc.clientID], 'destroy');
     this.ws?.close();

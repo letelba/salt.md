@@ -74,6 +74,17 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 	created_at TEXT NOT NULL,
 	last_used_at TEXT
 );
+CREATE TABLE IF NOT EXISTS oidc_sessions (
+	session_hash TEXT PRIMARY KEY REFERENCES sessions(token_hash) ON DELETE CASCADE,
+	refresh_cipher BLOB NOT NULL,
+	subject TEXT NOT NULL,
+	identity TEXT NOT NULL,
+	nonce TEXT NOT NULL,
+	auth_until INTEGER NOT NULL,
+	verified_at INTEGER NOT NULL,
+	lease_owner TEXT NOT NULL DEFAULT '',
+	lease_until INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS oauth_clients (
 	id TEXT PRIMARY KEY,
 	secret_hash TEXT NOT NULL DEFAULT '',

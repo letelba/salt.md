@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
@@ -24,6 +26,9 @@ func TestOIDCStreamDeadlineAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.oidcLogin = &oidcLogin{}
+	s.oidcLogin.keys = testOIDCKeys(t)
+	s.db.Exec(`INSERT INTO oidc_sessions(session_hash,refresh_cipher,subject,identity,nonce,auth_until,verified_at) VALUES (?,?,?,?,?,?,?)`, tokenHash(val), []byte("test"), "subject", "identity", "nonce", expiry.UnixMilli(), time.Now().UnixMilli())
+	s.oidcLogin.accounts = map[string]string{"identity": uid}
 	page := s.makePage(t, s.firstWorkspaceOf(t, uid), uid, "", "OIDC stream", `{}`)
 	srv := httptest.NewServer(s)
 	defer srv.Close()
@@ -69,13 +74,16 @@ func TestOIDCLoginSecurity(t *testing.T) {
 		t.Fatal(err)
 	}
 	var issuer, nonce, challenge string
+	var userClaims map[string]any
 	var alter func(map[string]any)
 	var exchanges int
 	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
-			json.NewEncoder(w).Encode(map[string]any{"issuer": issuer, "authorization_endpoint": issuer + "/auth", "token_endpoint": issuer + "/token", "jwks_uri": issuer + "/keys", "id_token_signing_alg_values_supported": []string{"RS256"}, "end_session_endpoint": issuer + "/logout"})
+			json.NewEncoder(w).Encode(map[string]any{"issuer": issuer, "authorization_endpoint": issuer + "/auth", "token_endpoint": issuer + "/token", "userinfo_endpoint": issuer + "/userinfo", "jwks_uri": issuer + "/keys", "id_token_signing_alg_values_supported": []string{"RS256"}, "end_session_endpoint": issuer + "/logout"})
+		case "/userinfo":
+			json.NewEncoder(w).Encode(userClaims)
 		case "/keys":
 			json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &key.PublicKey, Algorithm: "RS256", Use: "sig"}}})
 		case "/token":
@@ -87,10 +95,11 @@ func TestOIDCLoginSecurity(t *testing.T) {
 				http.Error(w, "invalid request", http.StatusBadRequest)
 				return
 			}
-			claims := map[string]any{"iss": issuer, "aud": "notes", "sub": "provider-subject", "nonce": nonce, "exp": time.Now().Add(30 * time.Minute).Unix(), "iat": time.Now().Unix(), "stable_id": "approved-identity", "app_entitlements": []string{"notes"}, "app_roles": []string{"notes.user"}, "email": "changed@example.test"}
+			claims := map[string]any{"iss": issuer, "aud": "notes", "sub": "provider-subject", "nonce": nonce, "exp": time.Now().Add(10 * time.Minute).Unix(), "iat": time.Now().Unix(), "stable_id": "approved-identity", "app_entitlements": []string{"notes"}, "app_roles": []string{"notes.user"}, "email": "changed@example.test", "email_verified": true}
 			if alter != nil {
 				alter(claims)
 			}
+			userClaims = claims
 			payload, _ := json.Marshal(claims)
 			signed, _ := signer.Sign(payload)
 			token, _ := signed.CompactSerialize()
@@ -99,7 +108,7 @@ func TestOIDCLoginSecurity(t *testing.T) {
 				parts[2] = b64url(make([]byte, 256))
 				token = strings.Join(parts, ".")
 			}
-			json.NewEncoder(w).Encode(map[string]any{"id_token": token, "access_token": "test-access-token", "token_type": "Bearer", "expires_in": 1800})
+			json.NewEncoder(w).Encode(map[string]any{"id_token": token, "access_token": token, "refresh_token": "test-refresh-token", "token_type": "Bearer", "expires_in": 600})
 		default:
 			http.NotFound(w, r)
 		}
@@ -107,6 +116,7 @@ func TestOIDCLoginSecurity(t *testing.T) {
 	defer idp.Close()
 	issuer = idp.URL
 	s.oidcLogin = &oidcLogin{issuer: issuer, clientID: "notes", secret: "test-secret", redirectURL: "https://notes.example.test/api/oidc/callback", name: "Company Login", identityClaim: "stable_id", entitlement: "notes", role: "notes.user", accounts: map[string]string{"approved-identity": uid}, pending: make(map[string]oidcLoginTransaction)}
+	s.oidcLogin.keys = testOIDCKeys(t)
 
 	start := func(t *testing.T, next string) (*http.Cookie, url.Values) {
 		t.Helper()
@@ -166,7 +176,7 @@ func TestOIDCLoginSecurity(t *testing.T) {
 				session = c
 			}
 		}
-		if session == nil || session.MaxAge > 600 || session.MaxAge < 590 {
+		if session == nil || session.MaxAge > 2592000 || session.MaxAge < 2591990 {
 			t.Fatal("missing or unbounded session")
 		}
 		r := httptest.NewRequest("GET", "/api/me", nil)
@@ -269,6 +279,7 @@ func TestOIDCConfiguration(t *testing.T) {
 	t.Setenv("SALT_OIDC_CLIENT_SECRET", "test-only")
 	t.Setenv("SALT_OIDC_REDIRECT_URL", "https://notes.example.test/api/oidc/callback")
 	t.Setenv("SALT_OIDC_ACCOUNT_LINKS", `{"immutable-id":"native-account-id"}`)
+	t.Setenv("SALT_OIDC_SESSION_KEYS", b64url(make([]byte, 32)))
 	if _, err := oidcLoginFromEnv(); err != nil {
 		t.Fatal(err)
 	}
@@ -281,4 +292,19 @@ func TestOIDCConfiguration(t *testing.T) {
 	if _, err := oidcLoginFromEnv(); err == nil {
 		t.Fatal("missing explicit links must fail closed")
 	}
+}
+
+func testOIDCKeys(t *testing.T) []cipher.AEAD {
+	t.Helper()
+	key := make([]byte, 32)
+	rand.Read(key)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aead, err := cipher.NewGCMWithRandomNonce(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return []cipher.AEAD{aead}
 }
