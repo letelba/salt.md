@@ -143,6 +143,13 @@ export interface Revision {
   title: string;
 }
 
+export interface CommentAnchor {
+  gen: number;
+  quote: string;
+  from: Record<string, unknown>;
+  to: Record<string, unknown>;
+}
+
 export interface Comment {
   id: string;
   blockId: string;
@@ -153,6 +160,7 @@ export interface Comment {
   authorColor?: string;
   authorAvatar?: string;
   resolvedAt: string | null;
+  anchor?: CommentAnchor;
 }
 
 // One entry of a page's raw trail. No resolvedAt, no editedAt and no author id

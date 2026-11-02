@@ -128,13 +128,14 @@ func (s *Server) handleRestoreRevision(w http.ResponseWriter, r *http.Request) {
 // ---- Comments ----
 
 type commentJSON struct {
-	ID         string  `json:"id"`
-	BlockID    string  `json:"blockId"`
-	AuthorID   string  `json:"authorId"`
-	AuthorName string  `json:"authorName"`
-	Body       string  `json:"body"`
-	CreatedAt  string  `json:"createdAt"`
-	ResolvedAt *string `json:"resolvedAt"`
+	ID         string          `json:"id"`
+	BlockID    string          `json:"blockId"`
+	AuthorID   string          `json:"authorId"`
+	AuthorName string          `json:"authorName"`
+	Body       string          `json:"body"`
+	CreatedAt  string          `json:"createdAt"`
+	ResolvedAt *string         `json:"resolvedAt"`
+	Anchor     json.RawMessage `json:"anchor,omitempty"`
 	// The author's colour/picture, so the same person looks the same
 	// everywhere — the comment column used to roll a colour out of the name
 	// that had nothing to do with the real user colour.
@@ -144,7 +145,7 @@ type commentJSON struct {
 
 func (s *Server) pageComments(pageID string) ([]commentJSON, error) {
 	// LEFT JOIN: the author may be deleted — the comment stays.
-	rows, err := s.db.Query(`SELECT c.id, c.block_id, c.author_id, c.author_name, c.body, c.created_at, c.resolved_at,
+	rows, err := s.db.Query(`SELECT c.id, c.block_id, c.author_id, c.author_name, c.body, c.created_at, c.resolved_at, c.anchor,
 		COALESCE(u.color, ''), COALESCE(u.avatar, '')
 		FROM comments c LEFT JOIN users u ON u.id = c.author_id
 		WHERE c.page_id = ? ORDER BY c.created_at`, pageID)
@@ -156,7 +157,11 @@ func (s *Server) pageComments(pageID string) ([]commentJSON, error) {
 	for rows.Next() {
 		var c commentJSON
 		var resolved sql.NullString
-		rows.Scan(&c.ID, &c.BlockID, &c.AuthorID, &c.AuthorName, &c.Body, &c.CreatedAt, &resolved, &c.AuthorColor, &c.AuthorAvatar)
+		var anchor string
+		rows.Scan(&c.ID, &c.BlockID, &c.AuthorID, &c.AuthorName, &c.Body, &c.CreatedAt, &resolved, &anchor, &c.AuthorColor, &c.AuthorAvatar)
+		if anchor != "" {
+			c.Anchor = json.RawMessage(anchor)
+		}
 		if resolved.Valid {
 			c.ResolvedAt = &resolved.String
 		}
@@ -187,8 +192,9 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Body    string `json:"body"`
-		BlockID string `json:"blockId"`
+		Body    string          `json:"body"`
+		BlockID string          `json:"blockId"`
+		Anchor  json.RawMessage `json:"anchor"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		httpError(w, 400, "invalid JSON")
@@ -202,10 +208,32 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "comment is too long")
 		return
 	}
+	anchor := ""
+	var gen *int64
+	if len(body.Anchor) > 0 && string(body.Anchor) != "null" {
+		var a struct {
+			Gen   *int64          `json:"gen"`
+			Quote string          `json:"quote"`
+			From  json.RawMessage `json:"from"`
+			To    json.RawMessage `json:"to"`
+		}
+		if len(body.Anchor) > 16000 || json.Unmarshal(body.Anchor, &a) != nil || a.Gen == nil || *a.Gen < 0 || strings.TrimSpace(a.Quote) == "" || len([]rune(a.Quote)) > 2000 || len(a.From) < 2 || len(a.To) < 2 || a.From[0] != '{' || a.To[0] != '{' {
+			httpError(w, 400, "invalid comment anchor")
+			return
+		}
+		gen = a.Gen
+		anchor = string(body.Anchor)
+	}
 	id := newID()
-	if _, err := s.db.Exec(`INSERT INTO comments (id, page_id, block_id, author_id, author_name, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, pageID, body.BlockID, u.ID, u.Name, strings.TrimSpace(body.Body), now()); err != nil {
+	result, err := s.db.Exec(`INSERT INTO comments (id, page_id, block_id, author_id, author_name, body, created_at, anchor)
+		SELECT ?, id, ?, ?, ?, ?, ?, ? FROM pages WHERE id = ? AND (? IS NULL OR doc_gen = ?)`,
+		id, body.BlockID, u.ID, u.Name, strings.TrimSpace(body.Body), now(), anchor, pageID, gen, gen)
+	if err != nil {
 		httpError(w, 500, err.Error())
+		return
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		httpError(w, 409, "The page changed. Select the text again.")
 		return
 	}
 	writeJSON(w, map[string]string{"id": id})

@@ -1141,5 +1141,8 @@
   "Sign in again": "Iniciar sesión de nuevo",
   "Your open work is preserved. Sign in in the new tab, then retry here.": "Tu trabajo abierto se conserva. Inicia sesión en la nueva pestaña y vuelve a intentarlo aquí.",
   "Sign in to the same account to continue.": "Inicia sesión con la misma cuenta para continuar.",
-  "Your open work is preserved. Retry when the connection is restored.": "Tu trabajo abierto se conserva. Vuelve a intentarlo cuando se restablezca la conexión."
+  "Your open work is preserved. Retry when the connection is restored.": "Tu trabajo abierto se conserva. Vuelve a intentarlo cuando se restablezca la conexión.",
+  "Comment on selected text": "Comentar el texto seleccionado",
+  "Original text no longer available": "El texto original ya no está disponible",
+  "Remove selected text": "Quitar el texto seleccionado"
 }
