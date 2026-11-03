@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { FormattingToolbar, getFormattingToolbarItems, useEditorState } from '@blocknote/react';
+import { FormattingToolbar, getFormattingToolbarItems, useComponentsContext, useEditorState } from '@blocknote/react';
 import { MessageSquarePlus } from 'lucide-react';
 import { Plugin, PluginKey } from 'prosemirror-state';
 import { Decoration, DecorationSet } from 'prosemirror-view';
@@ -37,6 +37,7 @@ export function InlineCommentToolbar({ editor, provider, onSelect }: {
   provider: SaltProvider;
   onSelect: (anchor: CommentAnchor, blockId: string) => void;
 }) {
+  const Components = useComponentsContext()!;
   const eligible = useEditorState({
     editor,
     selector: ({ editor: current }) => {
@@ -63,11 +64,9 @@ export function InlineCommentToolbar({ editor, provider, onSelect }: {
   return (
     <FormattingToolbar>
       {getFormattingToolbarItems()}
-      <button type="button" className="bn-button salt-inline-comment-button" title={t('Comment on selected text')}
-        aria-label={t('Comment on selected text')} disabled={!eligible || !provider.synced || provider.gen === null}
-        onMouseDown={(event) => event.preventDefault()} onClick={select}>
-        <MessageSquarePlus size={17} />
-      </button>
+      <Components.FormattingToolbar.Button className="bn-button" label={t('Comment on selected text')}
+        mainTooltip={t('Comment on selected text')} icon={<MessageSquarePlus size={17} />}
+        isDisabled={!eligible || !provider.synced || provider.gen === null} onClick={select} />
     </FormattingToolbar>
   );
 }
