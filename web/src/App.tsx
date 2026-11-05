@@ -654,6 +654,8 @@ export default function App() {
           warnedVersion = true;
           toast(t('A new version is available: reload the page'));
         }
+        if (msg.type === 'notifications' || msg.type === 'hello' || msg.type === 'pages' || msg.type === 'workspaces') window.dispatchEvent(new Event('salt:notifications'));
+        if (msg.type === 'comments' && msg.id) window.dispatchEvent(new CustomEvent('salt:comments-live', { detail: msg.id }));
         if (msg.type === 'pages') {
           window.clearTimeout(reloadTimer.current);
           reloadTimer.current = window.setTimeout(() => void loadPages(), 250);
@@ -1264,6 +1266,7 @@ export default function App() {
         onSetTheme={setThemePref}
         onLogout={async () => {
           const result = await api.logout();
+          window.dispatchEvent(new Event('salt:clear-comment-drafts'));
           // Inside the marketing site's demo frame, '/' is the marketing home
           // page — loaded into the frame, with no way back to the application.
           // There the session IS the in-memory store, so a reload is the

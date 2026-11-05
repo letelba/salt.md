@@ -10,6 +10,7 @@ import { en as coreEn } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
 import { api, ApiError, materializeQuery, sessionRequestsArePaused } from '../api';
 import { toast } from '../toast';
+import { confirm } from '../dialog';
 import type { Backlink, CollectionConfig, Comment, CommentAnchor, Page, PageMeta, PropOption, User } from '../types';
 import { SaltProvider } from '../collab';
 import { plural, t } from '../i18n';
@@ -25,6 +26,8 @@ import CollectionView from './CollectionView';
 import { HistoryModal } from './PageHistory';
 import CommentsPanel, {
   COMMENTS_CHANGED,
+  newCommentDraft,
+  type CommentDraft,
   commentsPanelOpen,
   initials,
   setCommentsPanelOpen,
@@ -40,6 +43,11 @@ import { modalOpen, useMenuDismiss } from '../modal';
 import { Menu, Copy, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow} from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 import { InlineCommentToolbar, useInlineComments } from './InlineComments';
+
+// In-memory, account/page-scoped drafts survive visiting the inbox or another
+// page. Private comment text is never written to browser storage.
+const commentDrafts = new Map<string, { draft: CommentDraft; pending: { anchor: CommentAnchor; blockId: string } | null }>();
+window.addEventListener('salt:clear-comment-drafts', () => commentDrafts.clear());
 
 export interface EditorProps {
   pageId: string;
@@ -78,21 +86,29 @@ export default function Editor(props: EditorProps) {
   // at the very bottom, and two lines to write in.
   const [commentsOpen, setCommentsOpen] = useState(commentsPanelOpen);
   const [comments, setComments] = useState<Comment[]>([]);
-  const [pendingComment, setPendingComment] = useState<{ anchor: CommentAnchor; blockId: string } | null>(null);
+  const draftKey = props.user.id + ':' + props.pageId;
+  const [pendingComment, setPendingComment] = useState<{ anchor: CommentAnchor; blockId: string } | null>(() => commentDrafts.get(draftKey)?.pending ?? null);
+  const [commentDraft, setCommentDraft] = useState<CommentDraft>(() => commentDrafts.get(draftKey)?.draft ?? newCommentDraft());
+  useEffect(() => {
+    if (commentDraft.body || pendingComment) commentDrafts.set(draftKey, { draft: commentDraft, pending: pendingComment });
+    else commentDrafts.delete(draftKey);
+  }, [draftKey, commentDraft, pendingComment]);
   const [activeComment, setActiveComment] = useState<string | null>(null);
   const [anchorStatuses, setAnchorStatuses] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let alive = true;
     setComments([]);
-    setPendingComment(null);
     setActiveComment(null);
     setAnchorStatuses({});
     const load = () => void api.listComments(props.pageId).then((items) => { if (alive) setComments(items); }).catch(() => {});
     load();
+    const onLive = (e: Event) => { if ((e as CustomEvent<string>).detail === props.pageId) load(); };
+    window.addEventListener('salt:comments-live', onLive);
     window.addEventListener(COMMENTS_CHANGED, load);
     window.addEventListener('focus', load);
-    return () => { alive = false; window.removeEventListener(COMMENTS_CHANGED, load); window.removeEventListener('focus', load); };
+    return () => { alive = false; window.removeEventListener('salt:comments-live', onLive);
+      window.removeEventListener(COMMENTS_CHANGED, load); window.removeEventListener('focus', load); };
   }, [props.pageId]);
 
   // Both panels occupy the same strip on the right, so opening one closes the
@@ -177,6 +193,19 @@ export default function Editor(props: EditorProps) {
     };
   }, [props.pageId, nonce]);
 
+  useEffect(() => {
+    if (!page) return;
+    const openLinkedComment = () => {
+      const id = new URLSearchParams(window.location.hash.slice(1)).get('comment');
+      if (id) { setActiveComment(id); showComments(true); }
+    };
+    openLinkedComment();
+    window.addEventListener('hashchange', openLinkedComment);
+    return () => window.removeEventListener('hashchange', openLinkedComment);
+  // Page identity, rather than comment updates, owns opening a direct link.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page?.id]);
+
   if (error) {
     return (
       <div className="editor-error">
@@ -242,7 +271,11 @@ export default function Editor(props: EditorProps) {
             onPagesChanged={props.onPagesChanged}
             onReset={() => setNonce((n) => n + 1)}
             comments={comments}
-            onCommentSelection={(anchor, blockId) => { setPendingComment({ anchor, blockId }); setActiveComment(null); showComments(true); }}
+            onCommentSelection={(anchor, blockId) => { void (async () => {
+              if (commentDraft.replyToId && commentDraft.body.trim() && !(await confirm(t('Start a new comment with this draft?')))) return;
+              setCommentDraft((d) => ({ ...d, replyToId: '', requestId: crypto.randomUUID() }));
+              setPendingComment({ anchor, blockId }); setActiveComment(null); showComments(true);
+            })(); }}
             onCommentOpen={(id) => { setActiveComment(id); showComments(true); }}
             onAnchorStatuses={(statuses) => setAnchorStatuses((previous) => JSON.stringify(previous) === JSON.stringify(statuses) ? previous : statuses)}
           />
@@ -252,6 +285,9 @@ export default function Editor(props: EditorProps) {
         <CommentsPanel
           pageId={page.id}
           myUserId={props.user.id}
+          canWrite={props.canEdit}
+          draft={commentDraft}
+          onDraftChange={setCommentDraft}
           open
           onClose={() => showComments(false)}
           pending={pendingComment}
@@ -567,15 +603,18 @@ function PageHeader({
     const count = () =>
       api
         .listComments(pageId)
-        .then((l) => alive && setOpenComments(l.filter((c) => !c.resolvedAt).length))
+        .then((l) => alive && setOpenComments(l.filter((c) => !c.threadId && !c.resolvedAt && (!c.deletedAt || l.some((r) => r.threadId === c.id && !r.deletedAt))).length))
         .catch(() => {});
     void count();
     // The panel says when it changed something. An event rather than a prop:
     // the count has to be right whether the panel is open or not, so the header
     // owns its own fetch and the panel only nudges it.
+    const live = (e: Event) => { if ((e as CustomEvent<string>).detail === pageId) void count(); };
+    window.addEventListener('salt:comments-live', live);
     window.addEventListener(COMMENTS_CHANGED, count);
     return () => {
       alive = false;
+      window.removeEventListener('salt:comments-live', live);
       window.removeEventListener(COMMENTS_CHANGED, count);
     };
   }, [pageId, canComment]);

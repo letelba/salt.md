@@ -1,24 +1,30 @@
-# Application worktree
+# Comment replies and inbox
 
 ## Purpose
 
-- Application source for the inline comments feature.
+- Isolated application worktree for threaded comments and persistent personal reply notifications.
 
 ## Ownership
 
-- The application owns editor interaction, comment persistence, and user-facing documentation.
+- Owns shared comment writes, SQLite migrations, comment threads, inbox, navigation, live updates, tests, and user documentation.
+- Root owns production configuration; this worktree uses synthetic local data only.
 
 ## Local Contracts
 
-- Inline comments attach to selections within one text block and retain the original quote if the anchor is no longer available.
-- Existing page comments and page permissions remain supported. External page replacement must not silently reattach an old anchor.
+- Replies stay within one page; threads display one indentation level and resolve as a unit.
+- Reply and notification creation is atomic and idempotent. Notify the target and root authors, deduplicated and excluding the actor.
+- Inbox content and unread counts require current page access and credential scope. Read state belongs to the recipient.
+- Preserve other authors' replies on deletion, original text anchors, and unsent drafts through failed requests and sign-in recovery.
+- Do not deploy or open/update upstream PRs before the user's preview acceptance.
 
 ## Work Guidance
 
-- Reuse the existing BlockNote/Yjs editor and comments panel; keep deployment-specific material out of the application repository.
+- Reuse Salt's existing styles, SQLite, event stream, and browser fixture. Add no runtime dependencies.
+- Keep private preview state and generated artifacts under ignored data paths.
 
 ## Verification
 
-- Run the web checks and relevant Go tests. Verify selection, navigation, reload, and deletion in a browser.
+- Run Go tests, frontend checks/build, focused two-user browser regressions, and git diff --check.
+- Verify a running local dev preview, unread delivery, exact reply navigation, permission denial, responsive layouts, and reload persistence.
 
 ## Child DOX Index

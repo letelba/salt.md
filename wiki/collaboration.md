@@ -47,7 +47,7 @@ Not everything on a page travels with the text.
 | Document body | immediately, character by character |
 | Title, icon, cover, tags, description | saved half a second after you stop; the others' sidebar updates, an open page's own title field does not |
 | Properties of a database row | in every open view of that collection, within half a second; on the row's own open page not until you reload it |
-| Comments | not live, see [Comments and notes](comments-and-notes.md) |
+| Comments | live replies and thread updates, see [Comments and notes](comments-and-notes.md) |
 | Raw trail (notes) | live; a note added by anyone appears under the page |
 | Rows of a collection | the open view reloads itself, see below |
 
@@ -340,9 +340,8 @@ Things people expect and do not get:
   the page history, not per sentence.
 - **No follow mode, no typing indicator.** You see where a cursor is, not what
   somebody is about to do.
-- **Comments do not arrive live.** The panel loads when you open it and after you
-  act in it. A comment written while you are looking at the panel appears the next
-  time it reloads.
+- **Comments and reply notifications arrive live.** The inbox and open threads
+  also refetch when reconnecting or returning to the app.
 - **The title of the page you have open does not update**, and neither does its
   own breadcrumb. The sidebar and the crumbs above it do.
 - **No live editing on a collection**, only automatic reloading of its rows, and

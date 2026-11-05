@@ -48,3 +48,10 @@ People covers a person property with several people and a list of who can be
 picked (#11): only those are offered, nobody else can be typed in, the list
 stays open for several picks, the setting is in the Properties dialog, and a
 row holding several keeps them until somebody picks one after a switch back.
+
+Comment replies and inbox coverage uses two independent browser sessions for live
+reply delivery, failure-retained drafts, thread resolution, exact reply links,
+read/unread state, mobile layouts and reload persistence. Run it alone with
+`GO_BINARY=/path/to/go PLAYWRIGHT_CHANNEL=chrome npm run test:comments --prefix web/tests`.
+The server suite also checks recipient deduplication, concurrent retry idempotency,
+atomic rollback, page access, cross-page targets, deletion and paginated unread totals.

@@ -79,9 +79,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/Sidebar.tsx": "7d75823681d0",
-        "web/src/components/Editor.tsx": "30f7cfc0385e",
-        "web/src/App.tsx": "1b69b20a6839",
+        "web/src/components/Sidebar.tsx": "b1c694c9c442",
+        "web/src/components/Editor.tsx": "74cb7d7454e0",
+        "web/src/App.tsx": "ba2ab5ba0ca0",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -106,7 +106,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/Sidebar.tsx": "7d75823681d0",
+        "web/src/components/Sidebar.tsx": "b1c694c9c442",
         "web/src/treeMode.ts": "413de5b84cd9",
         "web/src/theme.css": "b1c3dece61ce"
       },
@@ -141,7 +141,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/Editor.tsx": "30f7cfc0385e",
+        "web/src/components/Editor.tsx": "74cb7d7454e0",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -201,7 +201,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CommentsPanel.tsx": "b146032a1c22",
+        "web/src/components/CommentsPanel.tsx": "be0f2467ec68",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -299,7 +299,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "3437d8d67650",
+        "web/src/components/CollectionView.tsx": "43e98bc202a5",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -333,7 +333,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "3437d8d67650",
+        "web/src/components/CollectionView.tsx": "43e98bc202a5",
         "web/src/cardLayout.ts": "eb7f92584275",
         "web/src/theme.css": "b1c3dece61ce"
       }
@@ -367,7 +367,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "3437d8d67650",
+        "web/src/components/CollectionView.tsx": "43e98bc202a5",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -459,7 +459,7 @@
       ],
       "takenAt": {
         "server/public.go": "62d933047cbe",
-        "web/src/components/Editor.tsx": "30f7cfc0385e",
+        "web/src/components/Editor.tsx": "74cb7d7454e0",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -588,7 +588,7 @@
       ],
       "takenAt": {
         "web/src/components/AgentConnect.tsx": "e0a5a3a2e940",
-        "server/mcp.go": "700abf9add2c",
+        "server/mcp.go": "af50930b55dc",
         "web/src/theme.css": "b1c3dece61ce"
       },
       "element": ".dialog"
@@ -962,6 +962,38 @@
         "web/src/theme.css": "b1c3dece61ce"
       },
       "element": ".dialog"
+    },
+    {
+      "id": "reply-inbox",
+      "page": "comments-and-notes.md",
+      "caption": "The personal inbox keeps reply notifications and unread state across sessions.",
+      "shows": [
+        "web/src/components/Inbox.tsx",
+        "web/src/App.tsx",
+        "web/src/styles.css"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "waitFor": ".sidebar"
+        },
+        {
+          "click": "[aria-label=\"Inbox\"]"
+        },
+        {
+          "waitFor": ".inbox-dialog"
+        },
+        {
+          "wait": 500
+        }
+      ],
+      "takenAt": {
+        "web/src/components/Inbox.tsx": "fad24d16c0d3",
+        "web/src/App.tsx": "ba2ab5ba0ca0",
+        "web/src/styles.css": "cbcad1c6354f"
+      }
     }
   ]
 }

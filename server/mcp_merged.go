@@ -74,7 +74,7 @@ func (s *Server) mcpRevisions(u *user, pageID, action, revisionID string, limit 
 
 // mcpComments replaces get_comments, add_comment and resolve_comment.
 // delete_comment stays its own tool: see the note at the top of this file.
-func (s *Server) mcpComments(u *user, pageID, action, body, blockID, commentID string, resolved *bool) (string, error) {
+func (s *Server) mcpComments(u *user, pageID, action, body, blockID, commentID string, resolved *bool, reply ...string) (string, error) {
 	switch action {
 	case "", "list":
 		list, err := s.pageComments(pageID)
@@ -90,11 +90,18 @@ func (s *Server) mcpComments(u *user, pageID, action, body, blockID, commentID s
 		if strings.TrimSpace(body) == "" {
 			return "", fmt.Errorf("body is required for action=add")
 		}
-		id := newID()
-		if _, err := s.db.Exec(`INSERT INTO comments (id, page_id, block_id, author_id, author_name, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			id, pageID, blockID, u.ID, u.Name, strings.TrimSpace(body), now()); err != nil {
+		replyTo, requestID := "", ""
+		if len(reply) > 0 {
+			replyTo = reply[0]
+		}
+		if len(reply) > 1 {
+			requestID = reply[1]
+		}
+		id, err := s.createThreadComment(u, pageID, body, blockID, "", replyTo, requestID, nil)
+		if err != nil {
 			return "", err
 		}
+
 		return "Added comment " + id, nil
 	case "resolve", "reopen":
 		if commentID == "" {
