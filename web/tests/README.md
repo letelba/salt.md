@@ -21,6 +21,12 @@ of downloading Chromium, skip the browser installation and set
 The browser dependency is isolated in this test package; the application has no
 additional runtime dependencies. Tests do not upload fixtures or screenshots.
 
+Slash-menu coverage includes unique group headings and `/page` creation from
+documents and collection rows, keyboard/mouse selection, inherited workspace,
+title focus, reload persistence, the existing Sub-pages list, preserved parent
+text and visible creation refusal. Run it alone with
+`GO_BINARY=/path/to/go PLAYWRIGHT_CHANNEL=chrome node web/tests/slash-menu.mjs`.
+
 Callout coverage: all seven preset icons, immediate background changes when
 cycling icons, existing saved blocks, light/dark appearance, dark-mode text
 contrast, and persistence after reload without changing the callout text.

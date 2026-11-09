@@ -1,20 +1,19 @@
-# Comment replies and inbox
+# Editor page command
 
 ## Purpose
 
-- Isolated application worktree for threaded comments and persistent personal reply notifications.
+- Isolated application worktree for creating a child page from the editor's slash menu.
 
 ## Ownership
 
-- Owns shared comment writes, SQLite migrations, comment threads, inbox, navigation, live updates, tests, and user documentation.
+- Owns the Page slash-menu entry, its translations, browser regression and user documentation.
 - Root owns production configuration; this worktree uses synthetic local data only.
 
 ## Local Contracts
 
-- Replies stay within one page; threads display one indentation level and resolve as a unit.
-- Reply and notification creation is atomic and idempotent. Notify the target and root authors, deduplicated and excluding the actor.
-- Inbox content and unread counts require current page access and credential scope. Read state belongs to the recipient.
-- Preserve other authors' replies on deletion, original text anchors, and unsent drafts through failed requests and sign-in recovery.
+- `/page` creates a document under the current page, including when the current page is a collection row.
+- Reuse the existing create-and-open callback: parent permissions, inherited workspace, error feedback and title focus remain authoritative.
+- The Sub-pages entry remains a listing block; Page creates a child and opens it for editing.
 - Do not deploy or open/update upstream PRs before the user's preview acceptance.
 
 ## Work Guidance
@@ -24,7 +23,8 @@
 
 ## Verification
 
-- Run Go tests, frontend checks/build, focused two-user browser regressions, and git diff --check.
-- Verify a running local dev preview, unread delivery, exact reply navigation, permission denial, responsive layouts, and reload persistence.
+- Run `npm run build --prefix web`, `node web/tests/slash-menu.mjs` and `git diff --check`.
+- Set `GO_BINARY` to the installed Go toolchain and `PLAYWRIGHT_CHANNEL=chrome` to use installed Chrome.
+- Verify document/row parenting, workspace inheritance, keyboard/mouse selection, title focus, reload persistence and rejected creation without navigation.
 
 ## Child DOX Index
