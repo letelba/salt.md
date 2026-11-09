@@ -27,6 +27,11 @@ title focus, reload persistence, the existing Sub-pages list, preserved parent
 text and visible creation refusal. Run it alone with
 `GO_BINARY=/path/to/go PLAYWRIGHT_CHANNEL=chrome node web/tests/slash-menu.mjs`.
 
+Automatic-subpages coverage includes document/task parents, direct children,
+live rename/order/move/trash updates, keyboard navigation, nested manual-list
+deduplication, unchanged stored content and narrow layouts. Run it alone with
+`GO_BINARY=/path/to/go PLAYWRIGHT_CHANNEL=chrome node web/tests/subpages.mjs`.
+
 Callout coverage: all seven preset icons, immediate background changes when
 cycling icons, existing saved blocks, light/dark appearance, dark-mode text
 contrast, and persistence after reload without changing the callout text.

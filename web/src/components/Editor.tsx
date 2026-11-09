@@ -19,6 +19,7 @@ import { saltSchema } from '../pageLink';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { BlockContext } from '../blockContext';
+import { AutomaticSubpages } from '../blocks';
 import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, navItem, nothingBefore, useNavRegion } from '../nav';
 import { readPageScroll, writePageScroll } from '../pageUiState';
 import { useShortcut } from '../keys';
@@ -2200,6 +2201,7 @@ function BlockContent({
             getItems={getWikiItems}
           />
         </BlockNoteView>
+        <AutomaticSubpages editor={editor} />
         </BlockContext.Provider>
         {!structureOpen && (
           <Backlinks pageId={provider.pageId} pagesById={pagesById} onNavigate={onNavigate} />
