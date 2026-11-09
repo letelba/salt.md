@@ -13,7 +13,7 @@
 
 - Documents and collection rows show their readable, non-trashed direct children as individual page rows below the editor, in tree order. Each row has a page icon and title; do not wrap them in a boxed Sub-pages section or heading.
 - Hide the automatic list when there are no children or a Sub-pages block already exists anywhere in the document.
-- Existing Sub-pages blocks keep their chosen placement and empty-state behavior.
+- Existing Sub-pages blocks use the same individual page entries while keeping their chosen placement and empty-state behavior. Do not retain a boxed heading on legacy blocks.
 - Render from the existing permission-filtered tree; do not insert blocks, rewrite page content or change exports, permissions or collection row listings.
 - Reuse normal, modified and middle-click page navigation. Keep `/page` creation intact.
 - Do not deploy or open/update upstream PRs before the user's preview acceptance.

@@ -162,20 +162,19 @@ function Subpages({ automatic = false }: { automatic?: boolean }) {
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
   if (automatic && kids.length === 0) return null;
   return (
-    <div className={automatic ? 'child-pages' : 'bn-toc bn-subpages'} contentEditable={false}>
-      {!automatic && <div className="bn-toc-title">{t('Sub-pages')}</div>}
+    <div className={automatic ? 'child-pages' : 'child-pages bn-subpages'} contentEditable={false}>
       {!automatic && kids.length === 0 && <div className="bn-toc-empty">{t('No sub-pages')}</div>}
       {kids.map((p) => (
         <button
           key={p.id}
           type="button"
-          className={automatic ? 'child-page-link' : 'bn-toc-entry'}
+          className="child-page-link"
           onClick={(e) => openPage(e, p.id, openers)}
           onAuxClick={(e) => openPageAux(e, p.id, openers)}
           title={p.title || t('Untitled')}
         >
-          <PageIcon icon={p.icon} size={automatic ? 18 : 14} fallback={automatic ? <FileText size={18} /> : undefined} />
-          {' '}<span className={automatic ? 'child-page-title' : undefined}>{p.title || t('Untitled')}</span>
+          <PageIcon icon={p.icon} size={18} fallback={<FileText size={18} />} />
+          {' '}<span className="child-page-title">{p.title || t('Untitled')}</span>
         </button>
       ))}
     </div>

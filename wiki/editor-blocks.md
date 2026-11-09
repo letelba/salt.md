@@ -352,8 +352,8 @@ Insert a **Sub-pages** block only to choose its position within the document;
 while that block exists, the automatic entries stay hidden. Both views read
 the page tree; their entries are not saved into the text.
 
-The block lists the page's direct sub-pages, in their order in the sidebar, headed
-**Sub-pages**. A click opens one; ⌘-click (Ctrl-click on Windows and Linux) or
+The block shows the same individual page entries in their sidebar order,
+without a box or heading. A click opens one; ⌘-click (Ctrl-click on Windows and Linux) or
 the middle button opens it in a second tab, the same as in the sidebar. It
 lists only sub-pages you may read, so a colleague's private sub-page does not
 appear for you. With none it says *No sub-pages.*

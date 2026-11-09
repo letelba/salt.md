@@ -9,7 +9,7 @@ await withFixture(async ({ page, api, base, workspace, path }) => {
   await api('PATCH', `/api/pages/${parent.id}`, { content: notes });
   await page.goto(`${base}/p/${parent.id}`);
   await page.locator('[data-id="notes"] .bn-inline-content').waitFor();
-  const list = page.locator('.child-pages');
+  const list = page.locator('.editor-inner > .child-pages');
   assert.equal(await list.count(), 0, 'childless pages must not show an empty automatic section');
 
   // Tree changes reach the body without a reload or a document write.
@@ -45,6 +45,10 @@ await withFixture(async ({ page, api, base, workspace, path }) => {
   await page.locator('[data-id="manual-list"] .bn-subpages').waitFor();
   await eventually(async () => await list.count() === 0);
   assert.equal(await page.locator('.bn-subpages').count(), 1);
+  assert.equal(await page.locator('.bn-subpages .child-page-link').count(), 2,
+    'existing listing blocks must use the same individual page entries');
+  assert.equal(await page.locator('.bn-subpages .bn-toc-title').count(), 0,
+    'existing listing blocks must not retain the boxed Sub-pages appearance');
   await api('PATCH', `/api/pages/${parent.id}`, { content: notes });
   await page.reload();
   await list.getByRole('button', { name: first.title, exact: true }).waitFor();
