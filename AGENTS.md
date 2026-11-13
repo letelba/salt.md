@@ -1,33 +1,28 @@
-# Automatic subpages
+# Board card ordering
 
 ## Purpose
 
-- Isolated application worktree for showing child pages in their parent's body automatically.
+- Isolated application worktree for persistent card ordering within board columns.
 
 ## Ownership
 
-- Owns the shared child-page list, editor placement, styling, browser regression and feature documentation.
-- The deployment repository owns releases; previews use synthetic local data only.
+- Owns drag placement, card-menu ordering, the relative row-order API, user documentation and focused regressions. The deployment repository owns releases.
 
 ## Local Contracts
 
-- Documents and collection rows show their readable, non-trashed direct children as individual page rows below the editor, in tree order. Each row has a page icon and title; do not wrap them in a boxed Sub-pages section or heading.
-- Hide the automatic list when there are no children or a Sub-pages block already exists anywhere in the document.
-- Existing Sub-pages blocks use the same individual page entries while keeping their chosen placement and empty-state behavior. Do not retain a boxed heading on legacy blocks.
-- Render from the existing permission-filtered tree; do not insert blocks, rewrite page content or change exports, permissions or collection row listings.
-- Reuse normal, modified and middle-click page navigation. Keep `/page` creation intact.
-- Do not deploy or open/update upstream PRs before the user's preview acceptance.
+- Same-column moves with **No sort** save shared collection row positions. All unsorted views and copies of a card use that position. Sorted boards follow their selected property.
+- Resolve drop anchors and position changes transactionally. Require write access to the collection and moved card, and read access to the anchor. Both rows must be live children of the same collection.
+- Preserve the relative order of other rows, even if the view filters them out. Cross-column drops continue to change the grouping property.
+- Let the user test the synthetic preview before opening or updating upstream PRs.
 
 ## Work Guidance
 
-- Reuse existing styles, translations, tree updates and browser fixtures. Add no runtime dependencies.
-- Keep private preview state and generated artifacts under ignored data paths.
+- Reuse page positions, row-change events, the pointer drag hook and the card menu. Keep private previews outside this source checkout.
 
 ## Verification
 
-- Run frontend checks/build, `node web/tests/subpages.mjs`, `node web/tests/slash-menu.mjs` and `git diff --check`.
-- Use `GO_BINARY` for the installed Go toolchain and `PLAYWRIGHT_CHANNEL=chrome` for installed Chrome.
-- Verify documents/tasks, live hierarchy changes, manual-list deduplication, unchanged content, keyboard navigation and narrow layouts.
-- Preserve upstream screenshot fingerprints and report any retake gate separately from functional results.
+- Run Go tests and vet, frontend checks, a Vite build, `node web/tests/board-reorder.mjs`, `node web/tests/board-tick.mjs` and `git diff --check`.
+- Use the installed toolchain via `GO_BINARY` and installed Chrome via `PLAYWRIGHT_CHANNEL=chrome`.
+- Preserve screenshot fingerprints and report retake gates separately from functional checks.
 
 ## Child DOX Index

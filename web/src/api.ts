@@ -464,6 +464,11 @@ export const api = {
       limit: number;
     }>(`/api/collections/${pageId}/rows?${p.toString()}`);
   },
+  reorderCollectionRow: (collectionId: string, rowId: string, anchorId: string, after: boolean) =>
+    req<{ ok: boolean }>(`/api/collections/${collectionId}/rows/reorder`, {
+      method: 'POST',
+      body: JSON.stringify({ rowId, anchorId, after }),
+    }),
   // Either half alone is fine; the server keeps the other as stored.
   putCollection: (pageId: string, config: Partial<CollectionConfig>) =>
     req<CollectionConfig>(`/api/collections/${pageId}`, {

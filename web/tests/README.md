@@ -40,6 +40,11 @@ Property ordering covers dragging in both directions and across multiple rows,
 Save/Cancel, persistence after reload, unchanged row values and view settings,
 ignoring unrelated drags, and narrow layouts.
 
+Board ordering covers same-column pointer, touch and keyboard moves, saved
+order after reload, live updates in a second tab, tied legacy positions,
+filtered and sorted views, failed writes and cross-column moves. Run it with
+`node web/tests/board-reorder.mjs`.
+
 Menus and arrows covers four reported bugs: a right-click on a view's tab acts
 on that view (#24), a template opens its menu on a right-click and closes it on
 a click elsewhere (#20), a row menu at the foot of the sidebar's tree stays

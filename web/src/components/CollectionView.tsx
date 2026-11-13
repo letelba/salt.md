@@ -67,6 +67,8 @@ import {
   SquareArrowOutUpRight,
   ExternalLink,
   ArrowLeft,
+  ArrowUp,
+  ArrowDown,
   ArrowRight, History} from 'lucide-react';
 
 // Small type glyph shown next to each property (Notion-style visibility panel).
@@ -403,6 +405,20 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionId, fsKey]);
+  const loadCurrentRows = useRef(loadRows);
+  loadCurrentRows.current = loadRows;
+  const reorderQueue = useRef(Promise.resolve());
+
+  const reorderRow = (rowId: string, anchorId: string, after: boolean) => {
+    reorderQueue.current = reorderQueue.current.then(async () => {
+      try {
+        await api.reorderCollectionRow(collectionId, rowId, anchorId, after);
+      } catch {
+        toast(t('Change not saved'));
+      }
+      await loadCurrentRows.current().catch(() => {});
+    });
+  };
 
   // Loads ALL rows — but NOT on every change anywhere in the workspace. This
   // effect used to hang off `pages`, and `pages` gets a new identity on every
@@ -949,6 +965,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onDrop={(rowId, groupBy, optId) => {
             void setGroupValue(rowId, groupBy, optId);
           }}
+          onReorder={view.sort ? undefined : reorderRow}
           onTrashRow={trashRow}
           onAddInColumn={(groupBy, optId) =>
             void addRow(optId === UNSET ? {} : { [groupBy]: groupValueFor(schema, groupBy, optId) })
@@ -1909,6 +1926,7 @@ function BoardView({
   onSetProp,
   onSetOptions,
   onDrop,
+  onReorder,
   onTrashRow,
   onAddInColumn,
 }: {
@@ -1922,6 +1940,7 @@ function BoardView({
   onSetProp: (rowId: string, propId: string, value: unknown) => void;
   onSetOptions: (propId: string, options: PropOption[]) => void;
   onDrop: (rowId: string, groupBy: string, optId: string) => void;
+  onReorder?: (rowId: string, anchorId: string, after: boolean) => void;
   onTrashRow: (id: string, title: string) => Promise<void>;
   onAddInColumn: (groupBy: string, optId: string) => void;
 }) {
@@ -1932,9 +1951,9 @@ function BoardView({
   // card so it survives a re-render, and forgotten on leaving the view — an
   // opened card is a glance, not a setting.
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
-  // Zeiger-basiertes Ziehen statt des ruckeligen nativen Drags (siehe boardDrag).
-  const { drag, armedRow, startDrag, consumeClick } = useBoardDrag((rowId, toCol) =>
-    onDrop(rowId, groupBy, toCol),
+  const { drag, armedRow, startDrag, consumeClick } = useBoardDrag(
+    (rowId, toCol) => onDrop(rowId, groupBy, toCol),
+    onReorder && ((rowId, { anchorId, after }) => onReorder(rowId, anchorId, after)),
   );
   // When grouping by a relation, the columns are the rows of the target
   // collection. Loaded through the same cache the relation cells use, so the
@@ -2002,14 +2021,13 @@ function BoardView({
 
   return (
     <div className={'board' + (drag ? ' is-dragging' : '')}>
-      {columns.map((col) => (
+      {columns.map((col) => ({ ...col, cards: rowsFor(col.id) })).map((col) => (
         <div
           key={col.id}
           data-col={col.id}
           className={
             'board-col' +
-            // Highlight the target column but not the source column — putting it
-            // back there is not a change.
+            // Same-column drops use the insertion line instead.
             (drag && drag.over === col.id && drag.fromCol !== col.id ? ' drag-over' : '')
           }
           // The column carries the colour of ITS option (choosable in the
@@ -2022,16 +2040,22 @@ function BoardView({
               <span className="board-chip" style={{ background: col.color + '33', color: col.color }}>
                 {col.name}
               </span>
-              <span className="board-count">{rowsFor(col.id).length}</span>
+              <span className="board-count">{col.cards.length}</span>
             </span>
             <button className="board-add" title={t('New')} onClick={() => onAddInColumn(groupBy, col.id)}>
               <Plus size={14} />
             </button>
           </div>
           <div className="board-cards">
-            {rowsFor(col.id).map((r) => (
+            {col.cards.map((r, index) => (
               <div
                 key={r.id}
+                data-board-row={r.id}
+                data-insert={
+                  drag?.over === col.id && drag.placement?.anchorId === r.id
+                    ? (drag.placement.after ? 'after' : 'before')
+                    : undefined
+                }
                 className={
                   'board-card' +
                   (drag?.rowId === r.id && drag.fromCol === col.id ? ' is-dragging' : '') +
@@ -2087,6 +2111,7 @@ function BoardView({
                   <div className="card-move" onClick={(e) => e.stopPropagation()}>
                     <button
                       className="card-move-btn"
+                      aria-label={t('More')}
                       title={t('More')}
                       onClick={() =>
                         setMoveMenu(moveMenu === `${col.id}:${r.id}` ? null : `${col.id}:${r.id}`)
@@ -2116,6 +2141,22 @@ function BoardView({
                         >
                           <ExternalLink size={15} /> {t('Open in new tab')}
                         </button>
+                        {onReorder && index > 0 && (
+                          <button onClick={() => {
+                            setMoveMenu(null);
+                            onReorder(r.id, col.cards[index - 1].id, false);
+                          }}>
+                            <ArrowUp size={15} /> {t('Move up')}
+                          </button>
+                        )}
+                        {onReorder && index + 1 < col.cards.length && (
+                          <button onClick={() => {
+                            setMoveMenu(null);
+                            onReorder(r.id, col.cards[index + 1].id, true);
+                          }}>
+                            <ArrowDown size={15} /> {t('Move down')}
+                          </button>
+                        )}
                         {columns.filter((c) => !rowsFor(c.id).some((x) => x.id === r.id)).length > 0 && (
                           <div className="menu-label">{t('Move to')}</div>
                         )}

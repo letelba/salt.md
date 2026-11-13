@@ -8,9 +8,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // does not work at all — which is why there was a separate ⋯ menu.
 //
 // This version uses pointer events (mouse and finger in one): a real floating
-// card follows the pointer, the target column highlights, and on release the
-// card moves. Hit testing goes through `data-col` on the column element rather
-// than refs passed down — which keeps the caller lean.
+// card follows the pointer. The target column highlights for a status change,
+// and an insertion line marks the drop when reordering in the same column.
+
+type CardPlacement = { anchorId: string; after: boolean };
 
 export interface DragState {
   rowId: string;
@@ -23,6 +24,7 @@ export interface DragState {
   dx: number;
   dy: number;
   over: string | null; // column under the pointer
+  placement: CardPlacement | null;
 }
 
 const START_THRESHOLD = 5; // px before a click becomes a drag
@@ -35,7 +37,28 @@ const TOUCH_HOLD_MS = 320;
 // a swipe, and the drag is never armed in the first place.
 const TOUCH_HOLD_SLOP = 10;
 
-export function useBoardDrag(onMove: (rowId: string, toCol: string) => void) {
+function cardPlacement(cards: Element, rowId: string, y: number): CardPlacement | null {
+  let last: CardPlacement | null = null;
+  for (const card of cards.children) {
+    const anchorId = card.getAttribute('data-board-row');
+    if (!anchorId || anchorId === rowId) continue;
+    const rect = card.getBoundingClientRect();
+    if (y < rect.top + rect.height / 2) {
+      return card.previousElementSibling?.getAttribute('data-board-row') === rowId
+        ? null
+        : { anchorId, after: false };
+    }
+    last = card.nextElementSibling?.getAttribute('data-board-row') === rowId
+      ? null
+      : { anchorId, after: true };
+  }
+  return last;
+}
+
+export function useBoardDrag(
+  onMove: (rowId: string, toCol: string) => void,
+  onReorder?: (rowId: string, placement: CardPlacement) => void,
+) {
   const [drag, setDrag] = useState<DragState | null>(null);
   // Which card is armed after the hold but has not moved yet. On the iPhone
   // there is no navigator.vibrate — without a visible signal nothing at all
@@ -54,8 +77,9 @@ export function useBoardDrag(onMove: (rowId: string, toCol: string) => void) {
     dy: number;
     startX: number;
     startY: number;
+    pointerId: number;
+    board: Element | null;
     started: boolean;
-    over: string | null;
     touch: boolean;
     // armed: on a finger only true after TOUCH_HOLD_MS. Before that every
     // movement belongs to scrolling.
@@ -65,19 +89,30 @@ export function useBoardDrag(onMove: (rowId: string, toCol: string) => void) {
   // Whether a drag really happened — this tells a click (navigate) from a drag
   // (move). A ref, because the pointerup handler needs it straight away.
   const draggedRef = useRef(false);
-
-  const colUnder = (x: number, y: number): string | null => {
-    for (const el of document.elementsFromPoint(x, y)) {
-      const col = (el as HTMLElement).closest?.('[data-col]');
-      if (col) return col.getAttribute('data-col');
-    }
-    return null;
-  };
+  const callbacks = useRef({ onMove, onReorder });
+  callbacks.current = { onMove, onReorder };
 
   useEffect(() => {
+    const dropUnder = (e: PointerEvent, l: NonNullable<typeof live.current>, scroll = false) => {
+      const element = document.elementFromPoint(e.clientX, e.clientY);
+      if (!element || element.closest('.board') !== l.board) return { over: null, placement: null };
+      const col = element.closest('[data-col]');
+      const over = col?.getAttribute('data-col') ?? null;
+      const cards = element.closest<HTMLElement>('.board-cards');
+      if (scroll && cards) {
+        const rect = cards.getBoundingClientRect();
+        if (e.clientY - rect.top < 40) cards.scrollTop -= 12;
+        else if (rect.bottom - e.clientY < 40) cards.scrollTop += 12;
+      }
+      const placement = callbacks.current.onReorder && cards && over === l.fromCol
+        ? cardPlacement(cards, l.rowId, e.clientY)
+        : null;
+      return { over, placement };
+    };
+
     const onPointerMove = (e: PointerEvent) => {
       const l = live.current;
-      if (!l) return;
+      if (!l || l.pointerId !== e.pointerId) return;
       const moved = Math.hypot(e.clientX - l.startX, e.clientY - l.startY);
       if (!l.started) {
         if (l.touch && !l.armed) {
@@ -94,7 +129,6 @@ export function useBoardDrag(onMove: (rowId: string, toCol: string) => void) {
         l.started = true;
         draggedRef.current = true;
       }
-      l.over = colUnder(e.clientX, e.clientY);
       setDrag({
         rowId: l.rowId,
         fromCol: l.fromCol,
@@ -104,40 +138,32 @@ export function useBoardDrag(onMove: (rowId: string, toCol: string) => void) {
         y: e.clientY,
         dx: l.dx,
         dy: l.dy,
-        over: l.over,
+        ...dropUnder(e, l, true),
       });
-
-      // Scroll along at the top and bottom edge of a column, so cards can be
-      // dragged into long lists without letting go.
-      const cards = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement)?.closest?.(
-        '.board-cards',
-      ) as HTMLElement | null;
-      if (cards) {
-        const r = cards.getBoundingClientRect();
-        if (e.clientY - r.top < 40) cards.scrollTop -= 12;
-        else if (r.bottom - e.clientY < 40) cards.scrollTop += 12;
-      }
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (e: PointerEvent) => {
       const l = live.current;
-      if (l?.holdTimer) clearTimeout(l.holdTimer);
+      if (!l || l.pointerId !== e.pointerId) return;
+      if (l.holdTimer) clearTimeout(l.holdTimer);
       live.current = null;
       setDrag(null);
       setArmedRow(null);
-      if (l && l.started && l.over && l.over !== l.fromCol) {
-        onMove(l.rowId, l.over);
+      if (l.started && e.type !== 'pointercancel') {
+        const { over, placement } = dropUnder(e, l);
+        if (over && over !== l.fromCol) callbacks.current.onMove(l.rowId, over);
+        else if (placement) callbacks.current.onReorder?.(l.rowId, placement);
       }
       // draggedRef stays set until the next click, so the card's click
       // handler can suppress navigation.
     };
 
-    // The moment a real drag starts, the page must not scroll along. That
+    // Once the hold arms a touch drag, the page must not scroll along. That
     // cannot be done through `touch-action`: the value is read when the gesture
     // begins, and changing it later has no effect on the running gesture. So the
     // hard way — passive: false, so preventDefault is allowed.
     const onTouchMove = (e: TouchEvent) => {
-      if (live.current?.started) e.preventDefault();
+      if (live.current?.touch && live.current.armed && e.cancelable) e.preventDefault();
     };
 
     window.addEventListener('pointermove', onPointerMove);
@@ -145,18 +171,19 @@ export function useBoardDrag(onMove: (rowId: string, toCol: string) => void) {
     window.addEventListener('pointercancel', onPointerUp);
     window.addEventListener('touchmove', onTouchMove, { passive: false });
     return () => {
+      if (live.current?.holdTimer) clearTimeout(live.current.holdTimer);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
       window.removeEventListener('touchmove', onTouchMove);
     };
-  }, [onMove]);
+  }, []);
 
   const startDrag = useCallback(
     (e: React.PointerEvent, rowId: string, fromCol: string, title: string) => {
       // Left mouse button or finger only, and not on a control of the card
       // (the ⋯ menu, a select chip) — there you want to click, not drag.
-      if (e.button !== 0) return;
+      if (e.button !== 0 || !e.isPrimary) return;
       if ((e.target as Element).closest?.('.card-move, .card-prop-edit, a, button')) return;
       const card = (e.currentTarget as HTMLElement).getBoundingClientRect();
       draggedRef.current = false;
@@ -170,8 +197,9 @@ export function useBoardDrag(onMove: (rowId: string, toCol: string) => void) {
         dy: e.clientY - card.top,
         startX: e.clientX,
         startY: e.clientY,
+        pointerId: e.pointerId,
+        board: e.currentTarget.closest('.board'),
         started: false,
-        over: fromCol,
         touch,
         armed: !touch, // mouse: armed at once. Finger: only after the hold.
         holdTimer: null,

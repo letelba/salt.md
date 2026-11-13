@@ -356,7 +356,7 @@ func (s *Server) collectionRowsQuery(u *user, colID string, flat []rowFilter, gr
 	}
 	whereSQL := strings.Join(where, " AND ")
 
-	orderSQL := "position, created_at"
+	orderSQL := "position, created_at, id"
 	if sortParam != "" {
 		propID, dir, _ := strings.Cut(sortParam, ":")
 		if safePropID(propID) {
@@ -364,7 +364,7 @@ func (s *Server) collectionRowsQuery(u *user, colID string, flat []rowFilter, gr
 			if strings.EqualFold(dir, "desc") {
 				d = "DESC"
 			}
-			orderSQL = "json_extract(props, '$." + propID + "') " + d + ", position"
+			orderSQL = "json_extract(props, '$." + propID + "') " + d + ", position, created_at, id"
 		}
 	}
 
@@ -503,6 +503,106 @@ func (s *Server) handleCollectionRows(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"rows": list, "total": total, "offset": offset, "limit": limit})
+}
+
+// Reorder relative to another row's current position. The anchor comes from
+// the visible board, but the gap is computed against all collection rows so
+// filtered or private rows keep their relative order.
+func (s *Server) handleReorderCollectionRow(w http.ResponseWriter, r *http.Request) {
+	colID := r.PathValue("id")
+	var move struct {
+		RowID    string `json:"rowId"`
+		AnchorID string `json:"anchorId"`
+		After    bool   `json:"after"`
+	}
+	if err := decodeJSON(w, r, &move); err != nil || move.RowID == "" || move.AnchorID == "" || move.RowID == move.AnchorID {
+		httpError(w, 400, "a row and a different anchor are required")
+		return
+	}
+	if !s.canWriteReq(r, colID) || !s.canWriteReq(r, move.RowID) || !s.canReadReq(r, move.AnchorID) {
+		httpError(w, 404, "collection or row not found")
+		return
+	}
+
+	tx, err := s.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	defer tx.Rollback()
+
+	var exists int
+	err = tx.QueryRow(`SELECT 1 FROM pages AS row
+		JOIN pages AS parent ON parent.id = row.parent_id
+		JOIN collections AS c ON c.page_id = parent.id
+		WHERE row.id = ? AND parent.id = ? AND row.trashed_at IS NULL AND parent.trashed_at IS NULL`,
+		move.RowID, colID).Scan(&exists)
+	if err == sql.ErrNoRows {
+		httpError(w, 404, "collection or row not found")
+		return
+	}
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+
+	position := func() (float64, bool, error) {
+		var anchor float64
+		var prev, next sql.NullFloat64
+		err := tx.QueryRow(`SELECT position, prev, next FROM (
+			SELECT id, position, LAG(position) OVER ordered AS prev, LEAD(position) OVER ordered AS next
+			FROM pages WHERE parent_id = ? AND trashed_at IS NULL AND id != ?
+			WINDOW ordered AS (ORDER BY position, created_at, id)
+		) WHERE id = ?`, colID, move.RowID, move.AnchorID).Scan(&anchor, &prev, &next)
+		if err != nil {
+			return 0, false, err
+		}
+		lower, upper := prev.Float64, anchor
+		if move.After {
+			lower, upper = anchor, next.Float64
+			if !next.Valid {
+				return anchor + 1, anchor+1 > anchor, nil
+			}
+		} else if !prev.Valid {
+			return anchor - 1, anchor-1 < anchor, nil
+		}
+		mid := lower/2 + upper/2
+		return mid, lower < mid && mid < upper, nil
+	}
+
+	pos, fits, err := position()
+	if err == sql.ErrNoRows {
+		httpError(w, 404, "collection or row not found")
+		return
+	}
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	if !fits {
+		// Legacy ties and repeated insertions can exhaust a gap. Restore integer
+		// spacing in the same transaction, preserving every sibling's order.
+		_, err = tx.Exec(`WITH ordered AS (
+			SELECT id, ROW_NUMBER() OVER (ORDER BY position, created_at, id) AS pos
+			FROM pages WHERE parent_id = ? AND trashed_at IS NULL
+		) UPDATE pages SET position = ordered.pos FROM ordered WHERE pages.id = ordered.id`, colID)
+		if err == nil {
+			pos, _, err = position()
+		}
+	}
+	if err == nil {
+		_, err = tx.Exec(`UPDATE pages SET position = ? WHERE id = ?`, pos, move.RowID)
+	}
+	if err == nil {
+		err = tx.Commit()
+	}
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	s.pagesChanged()
+	s.rowsChanged(colID)
+	writeJSON(w, map[string]bool{"ok": true})
 }
 
 // createDefaultCollection initializes a fresh database page.

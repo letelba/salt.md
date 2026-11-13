@@ -109,6 +109,11 @@ would pick a card up instead. A floating copy follows the pointer, the target
 column lights up, and a column scrolls by itself when you hold a card near its
 top or bottom edge.
 
+With **Sort → No sort**, drag a card up or down in its column. The insertion line
+shows where it will land. You can also choose **Move up** or **Move down** in the
+card's menu. The collection saves this order and uses it in its unsorted views.
+A card that appears in multiple columns shares the same position in each.
+
 Note what a drag onto a multi-select or relation board does: it **replaces** the
 value with that one option. It does not add to what is there. And dragging a card
 into the catch-all column **clears** the value altogether; that is the only way
