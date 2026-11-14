@@ -33,6 +33,28 @@ await withFixture(async ({ page, context, api, base, workspace, path, read }) =>
   const see = (ids) => eventually(async () => (await order()).join() === ids.join());
   await see(initial);
 
+  // Taking a card out of the board must not start selecting the surrounding page.
+  const title = await card(top).locator('.board-card-title').boundingBox();
+  const board = await page.locator('.board').boundingBox();
+  assert(title && board);
+  await page.mouse.move(title.x + 12, title.y + title.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(title.x + 40, board.y - 70, { steps: 16 });
+  await page.locator('.board-drag-ghost').waitFor();
+  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), '');
+  await page.mouse.up();
+  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), '');
+  await see(initial);
+
+  const pageTitle = page.locator('textarea.page-title');
+  const heading = await pageTitle.boundingBox();
+  assert(heading);
+  await page.mouse.move(heading.x + 3, heading.y + heading.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(heading.x + 100, heading.y + heading.height / 2, { steps: 10 });
+  await page.mouse.up();
+  assert(await pageTitle.evaluate((input) => input.selectionEnd > input.selectionStart));
+
   async function drag(row, anchor, after, indicator = true) {
     const a = await card(row).boundingBox();
     const b = await card(anchor).boundingBox();

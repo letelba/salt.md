@@ -1,23 +1,22 @@
-# Board card ordering
+# Board card drag selection
 
 ## Purpose
 
-- Isolated application worktree for persistent card ordering within board columns.
+- Isolated application worktree for preventing native page selection when dragging board cards. The deployed card-ordering commit is the base.
 
 ## Ownership
 
-- Owns drag placement, card-menu ordering, the relative row-order API, user documentation and focused regressions. The deployment repository owns releases.
+- Owns selection handling in the board drag hook and its browser regression. The deployment repository owns releases and the synthetic preview.
 
 ## Local Contracts
 
-- Same-column moves with **No sort** save shared collection row positions. All unsorted views and copies of a card use that position. Sorted boards follow their selected property.
-- Resolve drop anchors and position changes transactionally. Require write access to the collection and moved card, and read access to the anchor. Both rows must be live children of the same collection.
-- Preserve the relative order of other rows, even if the view filters them out. Cross-column drops continue to change the grouping property.
+- Dragging from the card surface must suppress native text selection from the start of the gesture. Text outside the card remains selectable.
+- Preserve same-column ordering, cross-column moves, card clicks and controls, and touch scrolling and drag behavior.
 - Let the user test the synthetic preview before opening or updating upstream PRs.
 
 ## Work Guidance
 
-- Reuse page positions, row-change events, the pointer drag hook and the card menu. Keep private previews outside this source checkout.
+- Reuse the board drag hook and existing browser fixtures. Use `.local/board-card-reorder-preview/` for private acceptance.
 
 ## Verification
 
