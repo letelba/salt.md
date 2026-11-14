@@ -464,6 +464,11 @@ export const api = {
       limit: number;
     }>(`/api/collections/${pageId}/rows?${p.toString()}`);
   },
+  moveCollectionRow: (sourceId: string, rowId: string, collectionId: string) =>
+    req<{ ok: boolean }>(`/api/collections/${sourceId}/rows/move`, {
+      method: 'POST',
+      body: JSON.stringify({ rowId, collectionId }),
+    }),
   reorderCollectionRow: (collectionId: string, rowId: string, anchorId: string, after: boolean) =>
     req<{ ok: boolean }>(`/api/collections/${collectionId}/rows/reorder`, {
       method: 'POST',

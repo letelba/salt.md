@@ -420,6 +420,26 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     });
   };
 
+  const canDropOnCollection = (rowId: string, destinationId: string) => {
+    const target = pages.get(destinationId);
+    if (!workspaceId || target?.workspaceId !== workspaceId || destinationId === collectionId) return false;
+    for (let parent = target.parentId; parent; parent = pages.get(parent)?.parentId ?? null) {
+      if (parent === rowId) return false;
+    }
+    return true;
+  };
+
+  const moveToCollection = async (rowId: string, destinationId: string) => {
+    try {
+      await api.moveCollectionRow(collectionId, rowId, destinationId);
+    } catch (err) {
+      toast((err as Error).message || t('Moving failed'));
+      return;
+    }
+    toast(t('Moved to “{name}”', { name: pages.get(destinationId)?.title || t('Untitled') }));
+    void loadCurrentRows.current().catch(() => {});
+  };
+
   // Loads ALL rows — but NOT on every change anywhere in the workspace. This
   // effect used to hang off `pages`, and `pages` gets a new identity on every
   // SSE event: a database with 50k rows then crawled itself completely again
@@ -966,6 +986,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             void setGroupValue(rowId, groupBy, optId);
           }}
           onReorder={view.sort ? undefined : reorderRow}
+          canDropOnCollection={canDropOnCollection}
+          onDropOnCollection={(rowId, destinationId) => void moveToCollection(rowId, destinationId)}
           onTrashRow={trashRow}
           onAddInColumn={(groupBy, optId) =>
             void addRow(optId === UNSET ? {} : { [groupBy]: groupValueFor(schema, groupBy, optId) })
@@ -1927,6 +1949,8 @@ function BoardView({
   onSetOptions,
   onDrop,
   onReorder,
+  canDropOnCollection,
+  onDropOnCollection,
   onTrashRow,
   onAddInColumn,
 }: {
@@ -1941,6 +1965,8 @@ function BoardView({
   onSetOptions: (propId: string, options: PropOption[]) => void;
   onDrop: (rowId: string, groupBy: string, optId: string) => void;
   onReorder?: (rowId: string, anchorId: string, after: boolean) => void;
+  canDropOnCollection: (rowId: string, collectionId: string) => boolean;
+  onDropOnCollection: (rowId: string, collectionId: string) => void;
   onTrashRow: (id: string, title: string) => Promise<void>;
   onAddInColumn: (groupBy: string, optId: string) => void;
 }) {
@@ -1954,6 +1980,8 @@ function BoardView({
   const { drag, armedRow, startDrag, consumeClick } = useBoardDrag(
     (rowId, toCol) => onDrop(rowId, groupBy, toCol),
     onReorder && ((rowId, { anchorId, after }) => onReorder(rowId, anchorId, after)),
+    canDropOnCollection,
+    onDropOnCollection,
   );
   // When grouping by a relation, the columns are the rows of the target
   // collection. Loaded through the same cache the relation cells use, so the

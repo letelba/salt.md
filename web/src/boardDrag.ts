@@ -57,7 +57,9 @@ function cardPlacement(cards: Element, rowId: string, y: number): CardPlacement 
 
 export function useBoardDrag(
   onMove: (rowId: string, toCol: string) => void,
-  onReorder?: (rowId: string, placement: CardPlacement) => void,
+  onReorder: ((rowId: string, placement: CardPlacement) => void) | undefined,
+  canDropOnCollection: (rowId: string, collectionId: string) => boolean,
+  onDropOnCollection: (rowId: string, collectionId: string) => void,
 ) {
   const [drag, setDrag] = useState<DragState | null>(null);
   // Which card is armed after the hold but has not moved yet. On the iPhone
@@ -89,23 +91,36 @@ export function useBoardDrag(
   // Whether a drag really happened — this tells a click (navigate) from a drag
   // (move). A ref, because the pointerup handler needs it straight away.
   const draggedRef = useRef(false);
-  const callbacks = useRef({ onMove, onReorder });
-  callbacks.current = { onMove, onReorder };
+  const callbacks = useRef({ onMove, onReorder, canDropOnCollection, onDropOnCollection });
+  callbacks.current = { onMove, onReorder, canDropOnCollection, onDropOnCollection };
 
   useEffect(() => {
-    const dropUnder = (e: PointerEvent, l: NonNullable<typeof live.current>, scroll = false) => {
-      const element = document.elementFromPoint(e.clientX, e.clientY);
-      if (!element || element.closest('.board') !== l.board) return { over: null, placement: null };
+    // The sidebar is outside the board's React subtree. Use the same hit
+    // testing as column drops and clear the single highlight when the drag ends.
+    let highlightedCollection: HTMLElement | null = null;
+    const highlightCollection = (target: HTMLElement | null) => {
+      if (highlightedCollection === target) return;
+      highlightedCollection?.removeAttribute('data-board-drop-active');
+      target?.setAttribute('data-board-drop-active', '');
+      highlightedCollection = target;
+    };
+    const collectionUnder = (element: Element | null, rowId: string) => {
+      const target = element?.closest<HTMLElement>('[data-board-drop-collection]');
+      const id = target?.dataset.boardDropCollection;
+      return id && callbacks.current.canDropOnCollection(rowId, id) ? target : null;
+    };
+    const dropUnder = (element: Element | null, l: NonNullable<typeof live.current>, y: number, scroll = false) => {
+      if (!element || !l.board || element.closest('.board') !== l.board) return { over: null, placement: null };
       const col = element.closest('[data-col]');
       const over = col?.getAttribute('data-col') ?? null;
       const cards = element.closest<HTMLElement>('.board-cards');
       if (scroll && cards) {
         const rect = cards.getBoundingClientRect();
-        if (e.clientY - rect.top < 40) cards.scrollTop -= 12;
-        else if (rect.bottom - e.clientY < 40) cards.scrollTop += 12;
+        if (y - rect.top < 40) cards.scrollTop -= 12;
+        else if (rect.bottom - y < 40) cards.scrollTop += 12;
       }
       const placement = callbacks.current.onReorder && cards && over === l.fromCol
-        ? cardPlacement(cards, l.rowId, e.clientY)
+        ? cardPlacement(cards, l.rowId, y)
         : null;
       return { over, placement };
     };
@@ -129,6 +144,8 @@ export function useBoardDrag(
         l.started = true;
         draggedRef.current = true;
       }
+      const element = document.elementFromPoint(e.clientX, e.clientY);
+      highlightCollection(collectionUnder(element, l.rowId) ?? null);
       setDrag({
         rowId: l.rowId,
         fromCol: l.fromCol,
@@ -138,7 +155,7 @@ export function useBoardDrag(
         y: e.clientY,
         dx: l.dx,
         dy: l.dy,
-        ...dropUnder(e, l, true),
+        ...dropUnder(element, l, e.clientY, true),
       });
     };
 
@@ -147,11 +164,15 @@ export function useBoardDrag(
       if (!l || l.pointerId !== e.pointerId) return;
       if (l.holdTimer) clearTimeout(l.holdTimer);
       live.current = null;
+      highlightCollection(null);
       setDrag(null);
       setArmedRow(null);
       if (l.started && e.type !== 'pointercancel') {
-        const { over, placement } = dropUnder(e, l);
-        if (over && over !== l.fromCol) callbacks.current.onMove(l.rowId, over);
+        const element = document.elementFromPoint(e.clientX, e.clientY);
+        const collectionId = collectionUnder(element, l.rowId)?.dataset.boardDropCollection;
+        const { over, placement } = dropUnder(element, l, e.clientY);
+        if (collectionId) callbacks.current.onDropOnCollection(l.rowId, collectionId);
+        else if (over && over !== l.fromCol) callbacks.current.onMove(l.rowId, over);
         else if (placement) callbacks.current.onReorder?.(l.rowId, placement);
       }
       // draggedRef stays set until the next click, so the card's click
@@ -172,6 +193,7 @@ export function useBoardDrag(
     window.addEventListener('touchmove', onTouchMove, { passive: false });
     return () => {
       if (live.current?.holdTimer) clearTimeout(live.current.holdTimer);
+      highlightCollection(null);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);

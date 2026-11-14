@@ -508,6 +508,66 @@ func (s *Server) handleCollectionRows(w http.ResponseWriter, r *http.Request) {
 // Reorder relative to another row's current position. The anchor comes from
 // the visible board, but the gap is computed against all collection rows so
 // filtered or private rows keep their relative order.
+func (s *Server) handleMoveCollectionRow(w http.ResponseWriter, r *http.Request) {
+	sourceID := r.PathValue("id")
+	var move struct {
+		RowID        string `json:"rowId"`
+		CollectionID string `json:"collectionId"`
+	}
+	if err := decodeJSON(w, r, &move); err != nil || move.RowID == "" || move.CollectionID == "" || move.CollectionID == sourceID {
+		httpError(w, 400, "a row and a different destination collection are required")
+		return
+	}
+	if !s.canWriteReq(r, sourceID) || !s.canWriteReq(r, move.RowID) || !s.canWriteReq(r, move.CollectionID) {
+		httpError(w, 404, "collection or row not found")
+		return
+	}
+
+	tx, err := s.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	defer tx.Rollback()
+	within, err := isWithinSubtree(tx, move.RowID, move.CollectionID)
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	if within {
+		httpError(w, 400, "cannot move a page into its own subtree")
+		return
+	}
+	// Keep the original page and its stored properties. Check its current
+	// parent in the update so a stale drag cannot move a card a second time.
+	res, err := tx.Exec(`UPDATE pages AS row SET parent_id = ?, updated_at = ?,
+		position = (SELECT COALESCE(MAX(position), 0) + 1 FROM pages WHERE parent_id = ? AND trashed_at IS NULL)
+		WHERE row.id = ? AND row.parent_id = ? AND row.type = 'doc'
+		AND row.trashed_at IS NULL AND row.is_template = 0 AND EXISTS (
+			SELECT 1 FROM pages AS src JOIN pages AS dst ON dst.id = ?
+			WHERE src.id = row.parent_id AND src.workspace_id = row.workspace_id AND dst.workspace_id = row.workspace_id
+			AND src.type = 'collection' AND dst.type = 'collection'
+			AND src.trashed_at IS NULL AND dst.trashed_at IS NULL AND src.is_template = 0 AND dst.is_template = 0
+		)`, move.CollectionID, now(), move.CollectionID, move.RowID, sourceID, move.CollectionID)
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		httpError(w, 404, "collection or row not found")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	s.pagesChanged()
+	s.rowsChanged(sourceID)
+	s.rowsChanged(move.CollectionID)
+	s.fireWebhook("page.updated", move.RowID)
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
 func (s *Server) handleReorderCollectionRow(w http.ResponseWriter, r *http.Request) {
 	colID := r.PathValue("id")
 	var move struct {

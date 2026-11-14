@@ -344,10 +344,16 @@ thing under two names.
 | `GET /api/collections/{id}` | the schema (its properties) and its saved views |
 | `PUT /api/collections/{id}` | replace `schema`, `views` or both; a half left out stays as stored |
 | `GET /api/collections/{id}/rows` | rows, filtered, sorted and paginated |
+| `POST /api/collections/{id}/rows/move` | move a row to another collection in the same workspace |
 
 `PUT` takes `schema`, `views` or both. The half you leave out stays as it is
 stored, so changing a view never puts back an older copy of the schema, and the
 other way round. An empty body is a `400`. The answer is the stored pair.
+
+To move a row, send `{"rowId":"…","collectionId":"…"}` to the move route
+on its source collection. The call requires write access to the row and both
+collections. It appends the original page to the destination's stored order
+and keeps its saved property values.
 
 Rows are filtered in the database rather than in your script, so a table with
 50 000 rows costs one page of results:

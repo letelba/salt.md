@@ -114,6 +114,11 @@ shows where it will land. You can also choose **Move up** or **Move down** in th
 card's menu. The collection saves this order and uses it in its unsorted views.
 A card that appears in multiple columns shares the same position in each.
 
+To move a card to another collection, drag it onto that collection's name in
+the sidebar. The destination highlights as you drag over it. The same page
+moves with its content and saved properties. The destination collection's
+schema determines which properties and options it displays.
+
 Note what a drag onto a multi-select or relation board does: it **replaces** the
 value with that one option. It does not add to what is there. And dragging a card
 into the catch-all column **clears** the value altogether; that is the only way

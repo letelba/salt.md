@@ -156,5 +156,59 @@ await withFixture(async ({ page, context, api, base, workspace, path, read }) =>
   assert.equal(res.status(), 404);
   assert.deepEqual((await list()).map((r) => [r.id, r.position]), beforeRejection);
 
+  // Board cards can be dropped directly onto another collection in the sidebar.
+  const destination = await api('POST', '/api/pages', { title: 'Destination', type: 'collection', workspaceId: workspace.id });
+  const existing = await api('POST', '/api/pages', { parentId: destination.id, title: 'Existing destination card', props: { status: 'todo' } });
+  const cardPath = `/api/pages/${first.id}`;
+  const original = await api('GET', cardPath);
+  await page.reload();
+  await card(first.id).waitFor();
+  const destinationRow = page.locator(`[data-board-drop-collection="${destination.id}"]`);
+  const sourceRow = page.locator(`[data-board-drop-collection="${collectionId}"]`);
+  const drop = async (target, highlight = false) => {
+    const from = await card(first.id).boundingBox();
+    const to = await target.boundingBox();
+    assert(from && to, 'card and sidebar row are visible');
+    await page.mouse.move(from.x + 45, from.y + 16);
+    await page.mouse.down();
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+    await page.locator('.board-drag-ghost').waitFor();
+    if (highlight) await target.and(page.locator('[data-board-drop-active]')).waitFor();
+    else assert.equal(await page.locator('[data-board-drop-active]').count(), 0);
+    await page.mouse.up();
+    await page.locator('[data-board-drop-active]').waitFor({ state: 'hidden' });
+  };
+  await drop(sourceRow);
+  assert.equal((await api('GET', cardPath)).parentId, collectionId);
+
+  const movePath = `${path}/rows/move`;
+  await page.route(`**${movePath}`, (route) => route.fulfill({ status: 500, json: { error: 'Move failed for test' } }));
+  await drop(destinationRow, true);
+  await page.getByRole('region', { name: 'Notifications' }).getByText('Move failed for test').waitFor();
+  assert.equal((await api('GET', cardPath)).parentId, collectionId);
+  await page.unroute(`**${movePath}`);
+
+  const destinationBoard = await context.newPage();
+  await destinationBoard.goto(`${base}/p/${destination.id}`);
+  await destinationBoard.locator(`[data-board-row="${existing.id}"]`).waitFor();
+  await observer.reload();
+  await observer.locator(`[data-board-row="${first.id}"]`).waitFor();
+  await drop(destinationRow, true);
+  await card(first.id).waitFor({ state: 'hidden' });
+  await observer.locator(`[data-board-row="${first.id}"]`).waitFor({ state: 'hidden' });
+  const movedCard = destinationBoard.locator(`[data-col="todo"] [data-board-row="${first.id}"]`);
+  await movedCard.waitFor();
+  await destinationBoard.reload();
+  await movedCard.waitFor();
+  const moved = await api('GET', cardPath);
+  assert.equal(moved.parentId, destination.id);
+  assert.deepEqual(moved.props, original.props);
+  assert(moved.position > existing.position);
+
+  // A retry from the previous source cannot change the already-moved row.
+  const stale = await context.request.post(`${base}${movePath}`, { data: { rowId: first.id, collectionId: destination.id } });
+  assert.equal(stale.status(), 404);
+
   console.log('Board reorder: pointer, touch, keyboard, reload, live updates, legacy ties, filters and failed saves passed.');
+  console.log('Sidebar collection move: highlight, source and destination refresh, persistence, failed saves and stale drops passed.');
 });
