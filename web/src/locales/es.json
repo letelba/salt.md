@@ -1147,5 +1147,6 @@
   "Your open work is preserved. Retry when the connection is restored.": "Tu trabajo abierto se conserva. Vuelve a intentarlo cuando se restablezca la conexión.",
   "Comment on selected text": "Comentar el texto seleccionado",
   "Original text no longer available": "El texto original ya no está disponible",
-  "Remove selected text": "Quitar el texto seleccionado"
+  "Remove selected text": "Quitar el texto seleccionado",
+  "Undo board move": "Deshacer movimiento de tarjeta"
 }

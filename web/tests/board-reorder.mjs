@@ -77,6 +77,10 @@ await withFixture(async ({ page, context, api, base, workspace, path, read }) =>
       .evaluateAll((nodes) => nodes.map((node) => node.dataset.boardRow));
     return ids.join() === [top, last.id, next].join();
   });
+  await page.keyboard.press('Control+z');
+  await see(initial);
+  await drag(last.id, top, true);
+  await see([top, last.id, next]);
   await page.reload();
   await see([top, last.id, next]);
   await drag(top, next, true);
@@ -209,6 +213,31 @@ await withFixture(async ({ page, context, api, base, workspace, path, read }) =>
   const stale = await context.request.post(`${base}${movePath}`, { data: { rowId: first.id, collectionId: destination.id } });
   assert.equal(stale.status(), 404);
 
+  await page.keyboard.press('Control+z');
+  await card(first.id).waitFor();
+  await observer.locator(`[data-board-row="${first.id}"]`).waitFor();
+  await movedCard.waitFor({ state: 'hidden' });
+  const restored = await api('GET', cardPath);
+  assert.equal(restored.parentId, collectionId);
+  assert.equal(restored.position, original.position);
+  assert.deepEqual(restored.props, original.props);
+
+  // Ctrl+Z also works when pressed before the move response arrives.
+  let releaseMove;
+  const gate = new Promise((resolve) => { releaseMove = resolve; });
+  await page.route(`**${movePath}`, async (route) => {
+    if (route.request().postDataJSON().collectionId === destination.id) await gate;
+    await route.continue();
+  });
+  const undoRequest = page.waitForRequest((request) => request.method() === 'POST' &&
+    request.url().endsWith(`/api/collections/${destination.id}/rows/move`) &&
+    request.postDataJSON()?.restore?.position === original.position);
+  await drop(destinationRow, true);
+  await page.keyboard.press('Control+z');
+  releaseMove();
+  await undoRequest;
+  await eventually(async () => (await api('GET', cardPath)).parentId === collectionId);
+
   console.log('Board reorder: pointer, touch, keyboard, reload, live updates, legacy ties, filters and failed saves passed.');
-  console.log('Sidebar collection move: highlight, source and destination refresh, persistence, failed saves and stale drops passed.');
+  console.log('Sidebar collection move: highlight, live refresh, persistence, failed saves, stale drops and immediate undo passed.');
 });

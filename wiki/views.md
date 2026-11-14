@@ -119,6 +119,11 @@ the sidebar. The destination highlights as you drag over it. The same page
 moves with its content and saved properties. The destination collection's
 schema determines which properties and options it displays.
 
+While the source board is open, **Ctrl+Z** or **⌘Z** on a Mac undoes the
+most recent board move. It restores the previous group, order or collection.
+Undo applies to moves made since opening the board and lets text fields keep
+their own undo shortcut.
+
 Note what a drag onto a multi-select or relation board does: it **replaces** the
 value with that one option. It does not add to what is there. And dragging a card
 into the catch-all column **clears** the value altogether; that is the only way

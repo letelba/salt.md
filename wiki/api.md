@@ -353,7 +353,9 @@ other way round. An empty body is a `400`. The answer is the stored pair.
 To move a row, send `{"rowId":"…","collectionId":"…"}` to the move route
 on its source collection. The call requires write access to the row and both
 collections. It appends the original page to the destination's stored order
-and keeps its saved property values.
+and keeps its saved property values. Board undo sends a `restore` object
+with `position` and `expectedPosition` from the move receipt. The server checks
+the card's current collection and position before restoring it.
 
 Rows are filtered in the database rather than in your script, so a table with
 50 000 rows costs one page of results:

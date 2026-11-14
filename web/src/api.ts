@@ -375,7 +375,7 @@ export const api = {
     // gen: the document generation an autosave descends from (collab.ts).
     opts?: { materialize?: boolean; gen?: number | null; replaced?: boolean },
   ) =>
-    req<Page>(`/api/pages/${id}${materializeQuery(opts)}`, {
+    req<Page & { changeId?: number }>(`/api/pages/${id}${materializeQuery(opts)}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }),
@@ -464,13 +464,13 @@ export const api = {
       limit: number;
     }>(`/api/collections/${pageId}/rows?${p.toString()}`);
   },
-  moveCollectionRow: (sourceId: string, rowId: string, collectionId: string) =>
-    req<{ ok: boolean }>(`/api/collections/${sourceId}/rows/move`, {
+  moveCollectionRow: (sourceId: string, rowId: string, collectionId: string, restore?: { position: number; expectedPosition: number }) =>
+    req<{ ok: boolean; fromPosition: number; position: number }>(`/api/collections/${sourceId}/rows/move`, {
       method: 'POST',
-      body: JSON.stringify({ rowId, collectionId }),
+      body: JSON.stringify({ rowId, collectionId, restore }),
     }),
   reorderCollectionRow: (collectionId: string, rowId: string, anchorId: string, after: boolean) =>
-    req<{ ok: boolean }>(`/api/collections/${collectionId}/rows/reorder`, {
+    req<{ ok: boolean; fromPosition: number; position: number }>(`/api/collections/${collectionId}/rows/reorder`, {
       method: 'POST',
       body: JSON.stringify({ rowId, anchorId, after }),
     }),

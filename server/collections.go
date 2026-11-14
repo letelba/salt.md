@@ -505,16 +505,17 @@ func (s *Server) handleCollectionRows(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"rows": list, "total": total, "offset": offset, "limit": limit})
 }
 
-// Reorder relative to another row's current position. The anchor comes from
-// the visible board, but the gap is computed against all collection rows so
-// filtered or private rows keep their relative order.
 func (s *Server) handleMoveCollectionRow(w http.ResponseWriter, r *http.Request) {
 	sourceID := r.PathValue("id")
 	var move struct {
 		RowID        string `json:"rowId"`
 		CollectionID string `json:"collectionId"`
+		Restore      *struct {
+			Position         float64 `json:"position"`
+			ExpectedPosition float64 `json:"expectedPosition"`
+		} `json:"restore"`
 	}
-	if err := decodeJSON(w, r, &move); err != nil || move.RowID == "" || move.CollectionID == "" || move.CollectionID == sourceID {
+	if err := decodeJSON(w, r, &move); err != nil || move.RowID == "" || move.CollectionID == "" || (move.CollectionID == sourceID && move.Restore == nil) {
 		httpError(w, 400, "a row and a different destination collection are required")
 		return
 	}
@@ -529,6 +530,27 @@ func (s *Server) handleMoveCollectionRow(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer tx.Rollback()
+	var before, position float64
+	err = tx.QueryRow(`SELECT position FROM pages WHERE id = ? AND parent_id = ?`, move.RowID, sourceID).Scan(&before)
+	if err == sql.ErrNoRows {
+		httpError(w, 404, "collection or row not found")
+		return
+	}
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	if move.Restore != nil {
+		if before != move.Restore.ExpectedPosition {
+			httpError(w, 409, "the row has moved since this change")
+			return
+		}
+		position = move.Restore.Position
+	} else if err := tx.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM pages WHERE parent_id = ? AND trashed_at IS NULL`,
+		move.CollectionID).Scan(&position); err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
 	within, err := isWithinSubtree(tx, move.RowID, move.CollectionID)
 	if err != nil {
 		httpError(w, 500, err.Error())
@@ -540,15 +562,14 @@ func (s *Server) handleMoveCollectionRow(w http.ResponseWriter, r *http.Request)
 	}
 	// Keep the original page and its stored properties. Check its current
 	// parent in the update so a stale drag cannot move a card a second time.
-	res, err := tx.Exec(`UPDATE pages AS row SET parent_id = ?, updated_at = ?,
-		position = (SELECT COALESCE(MAX(position), 0) + 1 FROM pages WHERE parent_id = ? AND trashed_at IS NULL)
+	res, err := tx.Exec(`UPDATE pages AS row SET parent_id = ?, updated_at = ?, position = ?
 		WHERE row.id = ? AND row.parent_id = ? AND row.type = 'doc'
 		AND row.trashed_at IS NULL AND row.is_template = 0 AND EXISTS (
 			SELECT 1 FROM pages AS src JOIN pages AS dst ON dst.id = ?
 			WHERE src.id = row.parent_id AND src.workspace_id = row.workspace_id AND dst.workspace_id = row.workspace_id
 			AND src.type = 'collection' AND dst.type = 'collection'
 			AND src.trashed_at IS NULL AND dst.trashed_at IS NULL AND src.is_template = 0 AND dst.is_template = 0
-		)`, move.CollectionID, now(), move.CollectionID, move.RowID, sourceID, move.CollectionID)
+		)`, move.CollectionID, now(), position, move.RowID, sourceID, move.CollectionID)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -563,11 +584,16 @@ func (s *Server) handleMoveCollectionRow(w http.ResponseWriter, r *http.Request)
 	}
 	s.pagesChanged()
 	s.rowsChanged(sourceID)
-	s.rowsChanged(move.CollectionID)
+	if move.CollectionID != sourceID {
+		s.rowsChanged(move.CollectionID)
+	}
 	s.fireWebhook("page.updated", move.RowID)
-	writeJSON(w, map[string]bool{"ok": true})
+	writeJSON(w, map[string]any{"ok": true, "fromPosition": before, "position": position})
 }
 
+// Reorder relative to another row's current position. The anchor comes from
+// the visible board, but the gap is computed against all collection rows so
+// filtered or private rows keep their relative order.
 func (s *Server) handleReorderCollectionRow(w http.ResponseWriter, r *http.Request) {
 	colID := r.PathValue("id")
 	var move struct {
@@ -650,6 +676,10 @@ func (s *Server) handleReorderCollectionRow(w http.ResponseWriter, r *http.Reque
 			pos, _, err = position()
 		}
 	}
+	var before float64
+	if err == nil {
+		err = tx.QueryRow(`SELECT position FROM pages WHERE id = ?`, move.RowID).Scan(&before)
+	}
 	if err == nil {
 		_, err = tx.Exec(`UPDATE pages SET position = ? WHERE id = ?`, pos, move.RowID)
 	}
@@ -662,7 +692,7 @@ func (s *Server) handleReorderCollectionRow(w http.ResponseWriter, r *http.Reque
 	}
 	s.pagesChanged()
 	s.rowsChanged(colID)
-	writeJSON(w, map[string]bool{"ok": true})
+	writeJSON(w, map[string]any{"ok": true, "fromPosition": before, "position": pos})
 }
 
 // createDefaultCollection initializes a fresh database page.
