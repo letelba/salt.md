@@ -1249,5 +1249,7 @@
   "{n} unread notifications": {
     "one": "{n} notificación sin leer",
     "other": "{n} notificaciones sin leer"
-  }
+  },
+  "Move up": "Subir",
+  "Move down": "Bajar"
 }

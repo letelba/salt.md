@@ -1243,5 +1243,7 @@
   "{n} unread notifications": {
     "one": "{n} ungelesene Benachrichtigung",
     "other": "{n} ungelesene Benachrichtigungen"
-  }
+  },
+  "Move up": "Nach oben",
+  "Move down": "Nach unten"
 }

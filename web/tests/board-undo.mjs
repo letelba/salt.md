@@ -39,11 +39,17 @@ await withFixture(async ({ page, api, base, workspace, path, schema }) => {
     const a = await source.boundingBox();
     const b = await scope.locator(`[data-col="${to}"]`).boundingBox();
     assert(a && b, 'drag endpoints must be visible');
+    // This build follows one pointer per drag, so the cancel names it.
+    if (cancel) await page.evaluate(() => {
+      window.addEventListener('pointerdown', (e) => { window.boardPointerId = e.pointerId; }, { once: true });
+    });
     await page.mouse.move(a.x + 60, a.y + 28);
     await page.mouse.down();
     await page.mouse.move(b.x + 80, b.y + 85, { steps: 12 });
     await scope.locator('.board-drag-ghost').waitFor();
-    if (cancel) await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointercancel')));
+    if (cancel) await page.evaluate(() => {
+      window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: window.boardPointerId }));
+    });
     await page.mouse.up();
   };
   const expectStatus = (status) => eventually(async () => (await props()).status === status);

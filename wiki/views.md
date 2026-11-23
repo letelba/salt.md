@@ -117,8 +117,14 @@ card holds (a property it lacks, one of another type, or an option it does not
 offer), or relations elsewhere still point at the card, Salt lists them and asks
 before moving. Nothing is lost: moving the card back shows everything again.
 
+With **Sort → No sort**, drag a card up or down in its column. The insertion line
+shows where it will land. You can also choose **Move up** or **Move down** in the
+card's menu. The collection saves this order and uses it in its unsorted views.
+A card that appears in multiple columns shares the same position in each.
+
 **Undoing a move.** Press **Ctrl+Z** (**⌘Z** also works on Mac) to restore the
-previous group or collection after dragging or choosing **Move to**.
+previous group, collection or position after dragging or choosing **Move to**,
+**Move up** or **Move down**.
 Repeated presses undo your moves in reverse order, including a move that is
 still saving. This history belongs
 to the current collection session and clears when you leave it or reload.

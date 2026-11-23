@@ -1229,5 +1229,7 @@
   "You’re all caught up": "你已查看所有通知",
   "replied to your comment": "回覆了你的評論",
   "{n} replies": "{n} 則回覆",
-  "{n} unread notifications": "{n} 則未讀通知"
+  "{n} unread notifications": "{n} 則未讀通知",
+  "Move up": "上移",
+  "Move down": "下移"
 }

@@ -2192,6 +2192,19 @@ body:has(.icon-picker) .bn-side-menu {
 }
 .board-card.is-dragging * { pointer-events: none; }
 
+.board-card[data-insert]::after {
+  content: '';
+  position: absolute;
+  z-index: 401; /* keep the insertion line above the drag preview */
+  inset-inline: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.board-card[data-insert='before']::after { top: 0; }
+.board-card[data-insert='after']::after { bottom: 0; }
+
 /* No text selection during a drag, and the grabbing cursor everywhere. */
 .board.is-dragging, .board.is-dragging * {
   user-select: none;
@@ -2317,7 +2330,8 @@ body:has(.icon-picker) .bn-side-menu {
   opacity: 0;
 }
 
-.board-card:hover .card-move-btn {
+.board-card:hover .card-move-btn,
+.board-card:focus-within .card-move-btn {
   opacity: 1;
 }
 

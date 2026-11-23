@@ -532,7 +532,7 @@ func (s *Server) collectionRowsQuery(u *user, colID string, flat []rowFilter, gr
 	}
 	whereSQL := strings.Join(where, " AND ")
 
-	orderSQL := "position, created_at"
+	orderSQL := "position, created_at, id"
 	if sortParam != "" {
 		propID, dir, _ := strings.Cut(sortParam, ":")
 		if safePropID(propID) {
@@ -540,7 +540,7 @@ func (s *Server) collectionRowsQuery(u *user, colID string, flat []rowFilter, gr
 			if strings.EqualFold(dir, "desc") {
 				d = "DESC"
 			}
-			orderSQL = "json_extract(props, '$." + propID + "') " + d + ", position"
+			orderSQL = "json_extract(props, '$." + propID + "') " + d + ", position, created_at, id"
 		}
 	}
 
@@ -698,6 +698,11 @@ func (s *Server) handleMoveCollectionRow(w http.ResponseWriter, r *http.Request)
 			// Undo puts it back with the position, so an older receipt for
 			// the same card stays valid: undoing two moves in a row works.
 			Placement *int64 `json:"placement"`
+			// The neighbours the card had before that move (the receipt's
+			// fromAfter and fromBefore): it goes back between them. Absent
+			// on a request from an older page, which restores by position.
+			After  *neighbour `json:"after"`
+			Before *neighbour `json:"before"`
 		} `json:"restore"`
 		// What the reader was shown before confirming (the GET on this route).
 		// When given, the move is refused if that has changed since.
@@ -780,12 +785,31 @@ func (s *Server) handleMoveCollectionRow(w http.ResponseWriter, r *http.Request)
 		failed(err)
 		return
 	}
+	// The placement counter alone tells whether the card moved since: an
+	// order-keeping renumbering changes its position but not its place.
+	fromAfter, fromBefore, err := rowNeighbours(tx, sourceID, move.RowID)
+	if err != nil {
+		failed(err)
+		return
+	}
 	if move.Restore != nil {
-		if before != *move.Restore.ExpectedPosition || placement != *move.Restore.ExpectedPlacement {
+		legacy := move.Restore.After == nil || move.Restore.Before == nil
+		if placement != *move.Restore.ExpectedPlacement || (legacy && before != *move.Restore.ExpectedPosition) {
 			httpErrorCode(w, 409, "collection_move_stale", "The card moved again. This move could not be undone.")
 			return
 		}
-		position = *move.Restore.Position
+		if legacy {
+			position = *move.Restore.Position
+		} else {
+			var ok bool
+			if position, ok, err = restoreSlot(tx, move.CollectionID, move.RowID, *move.Restore.After, *move.Restore.Before); err != nil {
+				failed(err)
+				return
+			} else if !ok {
+				httpErrorCode(w, 409, "collection_move_stale", "The cards around it moved. This move could not be undone.")
+				return
+			}
+		}
 	} else if err := tx.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM pages WHERE parent_id = ? AND trashed_at IS NULL`,
 		move.CollectionID).Scan(&position); err != nil {
 		failed(err)
@@ -862,7 +886,164 @@ func (s *Server) handleMoveCollectionRow(w http.ResponseWriter, r *http.Request)
 	s.rowsChanged(move.CollectionID)
 	s.fireWebhook("page.updated", move.RowID)
 	writeJSON(w, map[string]any{"ok": true, "fromPosition": before, "position": position,
-		"fromPlacement": fromPlacement, "placement": placement})
+		"fromPlacement": fromPlacement, "placement": placement, "fromAfter": fromAfter, "fromBefore": fromBefore})
+}
+
+// handleReorderCollectionRow places a row before or after another row of the
+// same collection. The anchor comes from the visible board, but the gap is
+// computed against all collection rows so filtered or private rows keep their
+// relative order. The answer is a receipt for undo: sending `restore` back
+// returns the row to `fromPosition` while nothing has moved it since.
+func (s *Server) handleReorderCollectionRow(w http.ResponseWriter, r *http.Request) {
+	colID := r.PathValue("id")
+	var move struct {
+		RowID    string `json:"rowId"`
+		AnchorID string `json:"anchorId"`
+		After    bool   `json:"after"`
+		Restore  *struct {
+			Position          *float64 `json:"position"`
+			ExpectedPosition  *float64 `json:"expectedPosition"`
+			ExpectedPlacement *int64   `json:"expectedPlacement"`
+			// The placement before the undone change, put back with the
+			// position so an older receipt for the same card stays valid.
+			Placement *int64 `json:"placement"`
+			// The neighbours the card had before that move (the receipt's
+			// fromAfter and fromBefore): it goes back between them. Absent
+			// on a request from an older page, which restores by position.
+			After  *neighbour `json:"after"`
+			Before *neighbour `json:"before"`
+		} `json:"restore"`
+	}
+	if err := decodeJSON(w, r, &move); err != nil || move.RowID == "" ||
+		(move.Restore == nil && (move.AnchorID == "" || move.RowID == move.AnchorID)) ||
+		(move.Restore != nil && (move.Restore.Position == nil || move.Restore.ExpectedPosition == nil || move.Restore.ExpectedPlacement == nil ||
+			move.Restore.Placement == nil || *move.Restore.Placement >= *move.Restore.ExpectedPlacement)) {
+		httpErrorCode(w, 400, "collection_move_invalid", "Choose a card and where to put it.")
+		return
+	}
+	if !s.canWriteReq(r, colID) || !s.canWriteReq(r, move.RowID) || (move.Restore == nil && !s.canReadReq(r, move.AnchorID)) {
+		httpErrorCode(w, 404, "collection_move_unavailable", "The card or collection is no longer available.")
+		return
+	}
+	failed := func(err error) {
+		log.Printf("collection reorder %s in %s: %v", move.RowID, colID, err)
+		httpErrorCode(w, 500, "collection_move_failed", "The card could not be moved.")
+	}
+
+	tx, err := s.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		failed(err)
+		return
+	}
+	defer tx.Rollback()
+
+	var before float64
+	var placement, fromPlacement int64
+	err = tx.QueryRow(`SELECT row.position, row.placement FROM pages AS row
+		JOIN pages AS parent ON parent.id = row.parent_id
+		JOIN collections AS c ON c.page_id = parent.id
+		WHERE row.id = ? AND parent.id = ? AND row.trashed_at IS NULL AND parent.trashed_at IS NULL`,
+		move.RowID, colID).Scan(&before, &placement)
+	if err == sql.ErrNoRows {
+		if move.Restore != nil {
+			httpErrorCode(w, 409, "collection_move_stale", "The card moved again. This move could not be undone.")
+		} else {
+			httpErrorCode(w, 404, "collection_move_unavailable", "The card or collection is no longer available.")
+		}
+		return
+	}
+	if err != nil {
+		failed(err)
+		return
+	}
+	fromPlacement = placement
+
+	fromAfter, fromBefore, err := rowNeighbours(tx, colID, move.RowID)
+	if err != nil {
+		failed(err)
+		return
+	}
+	var pos float64
+	if move.Restore != nil {
+		if placement != *move.Restore.ExpectedPlacement {
+			httpErrorCode(w, 409, "collection_move_stale", "The card moved again. This move could not be undone.")
+			return
+		}
+		if move.Restore.After == nil || move.Restore.Before == nil {
+			if before != *move.Restore.ExpectedPosition {
+				httpErrorCode(w, 409, "collection_move_stale", "The card moved again. This move could not be undone.")
+				return
+			}
+			pos = *move.Restore.Position
+		} else {
+			var ok bool
+			pos, ok, err = restoreSlot(tx, colID, move.RowID, *move.Restore.After, *move.Restore.Before)
+			if err == nil && !ok {
+				httpErrorCode(w, 409, "collection_move_stale", "The cards around it moved. This move could not be undone.")
+				return
+			}
+		}
+	} else {
+		// Already there (a request that arrives late, after the same move):
+		// nothing is written, so neither the number nor the counter changes
+		// and the receipts held elsewhere stay valid.
+		if (move.After && fromAfter.ID == move.AnchorID) || (!move.After && fromBefore.ID == move.AnchorID) {
+			if err := tx.Commit(); err != nil {
+				failed(err)
+				return
+			}
+			writeJSON(w, map[string]any{"ok": true, "moved": false, "fromPosition": before, "position": before,
+				"fromPlacement": placement, "placement": placement, "fromAfter": fromAfter, "fromBefore": fromBefore})
+			return
+		}
+		pos, err = slotNear(tx, colID, move.RowID, move.AnchorID, move.After)
+		if err == sql.ErrNoRows {
+			httpErrorCode(w, 404, "collection_move_unavailable", "The card or collection is no longer available.")
+			return
+		}
+	}
+	if err != nil {
+		failed(err)
+		return
+	}
+	if _, err := tx.Exec(`UPDATE pages SET position = ? WHERE id = ?`, pos, move.RowID); err != nil {
+		failed(err)
+		return
+	}
+	// Whether the card changed place among the others. After a renumbering it
+	// can keep its number while its neighbours change, so the number cannot
+	// tell; and the counter must then move too, or the receipt would match the
+	// state before.
+	nowAfter, nowBefore, err := rowNeighbours(tx, colID, move.RowID)
+	if err != nil {
+		failed(err)
+		return
+	}
+	moved := nowAfter.ID != fromAfter.ID || nowBefore.ID != fromBefore.ID
+	if moved && move.Restore == nil {
+		if _, err := tx.Exec(`UPDATE pages SET placement = ? + 1 WHERE id = ? AND placement <= ?`, fromPlacement, move.RowID, fromPlacement); err != nil {
+			failed(err)
+			return
+		}
+	}
+	if move.Restore != nil {
+		if _, err := tx.Exec(`UPDATE pages SET placement = ? WHERE id = ?`, *move.Restore.Placement, move.RowID); err != nil {
+			failed(err)
+			return
+		}
+	}
+	if err := tx.QueryRow(`SELECT placement FROM pages WHERE id = ?`, move.RowID).Scan(&placement); err != nil {
+		failed(err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		failed(err)
+		return
+	}
+	s.pagesChanged()
+	s.rowsChanged(colID)
+	writeJSON(w, map[string]any{"ok": true, "moved": moved, "fromPosition": before, "position": pos, "fromPlacement": fromPlacement,
+		"placement": placement, "fromAfter": fromAfter, "fromBefore": fromBefore})
 }
 
 // createDefaultCollection initializes a fresh database page.

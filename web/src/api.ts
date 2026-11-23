@@ -22,6 +22,8 @@ import { normalizeCollectionConfig } from './types';
 import { formatBytes } from './format';
 import { serverMessage } from './serverErrors';
 
+/** A row next to another and its placement counter when recorded. */
+export type RowNeighbour = { id: string; placement: number };
 export type CollectionMoveCheck = { hidden: string[]; relations: { collection: string; property: string; rows: number }[] };
 
 /** An error carrying an HTTP status and a machine-readable reason, so callers
@@ -476,15 +478,29 @@ export const api = {
     req<CollectionMoveCheck>(
       `/api/collections/${sourceId}/rows/move?${new URLSearchParams({ rowId, collectionId })}`,
     ),
+  reorderCollectionRow: (collectionId: string, rowId: string, anchorId: string, after: boolean) =>
+    req<{ ok: boolean; moved: boolean; fromPosition: number; position: number; fromPlacement: number; placement: number; fromAfter: RowNeighbour; fromBefore: RowNeighbour }>(`/api/collections/${collectionId}/rows/reorder`, {
+      method: 'POST',
+      body: JSON.stringify({ rowId, anchorId, after }),
+    }),
+  restoreCollectionRowOrder: (
+    collectionId: string,
+    rowId: string,
+    restore: { position: number; expectedPosition: number; expectedPlacement: number; placement: number; after: RowNeighbour; before: RowNeighbour },
+  ) =>
+    req<{ ok: boolean }>(`/api/collections/${collectionId}/rows/reorder`, {
+      method: 'POST',
+      body: JSON.stringify({ rowId, restore }),
+    }),
   // check: what the reader confirmed; the server refuses the move with
   // collection_move_changed if that no longer holds.
   moveCollectionRow: (
     sourceId: string,
     rowId: string,
     collectionId: string,
-    opts: { restore?: { position: number; expectedPosition: number; expectedPlacement: number; placement: number }; check?: CollectionMoveCheck } = {},
+    opts: { restore?: { position: number; expectedPosition: number; expectedPlacement: number; placement: number; after: RowNeighbour; before: RowNeighbour }; check?: CollectionMoveCheck } = {},
   ) =>
-    req<{ ok: boolean; fromPosition: number; position: number; fromPlacement: number; placement: number }>(`/api/collections/${sourceId}/rows/move`, {
+    req<{ ok: boolean; fromPosition: number; position: number; fromPlacement: number; placement: number; fromAfter: RowNeighbour; fromBefore: RowNeighbour }>(`/api/collections/${sourceId}/rows/move`, {
       method: 'POST',
       body: JSON.stringify({ rowId, collectionId, ...opts }),
     }),
